@@ -94,7 +94,6 @@ no warranty.
 | Music by album, with covers | Now Playing |
 | ![Control center](docs/media/shot_7_control_center.png) | ![Settings](docs/media/shot_8_settings_theme.png) |
 | The control center (SELECT) | Settings, trying a theme |
-
 | ![HOME dialog](docs/media/shot_10_home_dialog.png) | ![Button test](docs/media/shot_11_button_test.png) |
 | HOME: XLT's own "Quit XLT?" | Settings → XLT → Button test |
 | ![Update](docs/media/shot_12_update.png) | ![Screensaver](docs/media/shot_9_screensaver.png) |
