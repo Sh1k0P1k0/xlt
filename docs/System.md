@@ -13,14 +13,14 @@ knob slides); an ARK setting that is on for some software only shows that next t
 
 | Section | Settings | Stored in |
 |---|---|---|
-| XLT | Theme, Play the next video, Start XLT at boot, default ISO driver, removed entries, rescan, clear play history | ARK's `launcher` key; `cache/xlt.ini` |
+| XLT | Theme, Play the next video, Start XLT at boot, default ISO driver, removed entries, rescan, clear play history, button test | ARK's `launcher` key; `cache/xlt.ini` |
 | Games | CPU speed (Auto…333, ARK-5 up to 443 MHz), extra memory, Memory Stick cache, Inferno ISO cache, skip logos, UMD region, Disable Pause Game (Go) | `SETTINGS.TXT` |
 | Plugins | Every global line of ARK's `PLUGINS.TXT` files: Off, or where it loads (Always, All games, PSP games, Homebrew, PS1 games, XMB, Launcher, as arkMenu's runlevels); old plugin support (Go) | `PLUGINS.TXT` |
 | Power & Display | Screensaver (Off, 1, 2, 5, 10 min) and Show screensaver, USB charging, backlight auto-off, auto sleep, LEDs off, keep the paused game (Go) | `cache/xlt.ini`, `SETTINGS.TXT`, registry |
 | Sound & Controls | Interface sounds, even out music volume, AVLS, enter button (✕/○), disable analog stick | registry, `SETTINGS.TXT` |
 | Network | WPA2, ad hoc channel, Wi-Fi power save, hide MAC address | `SETTINGS.TXT`, registry |
 | System | Language, date format, time format, time zone, summer time, disable UMD drive | registry, `SETTINGS.TXT` |
-| About | Model, system software, ARK version, nickname, Memory Stick free and used space | `cache/storage.txt` |
+| About | Model, system software, ARK version, nickname, check for updates, Memory Stick free and used space | `cache/storage.txt` |
 
 - **ARK settings** are read and written like ARK's own arkMenu (`src/arkcfg.c`, host-tested in
   `tests/test_arkcfg.c`), in ARK-5's or ARK-4's dialect, and also to `flash1:/SETTINGS.TXT` when ARK-5 is
@@ -63,6 +63,30 @@ knob slides); an ARK setting that is on for some software only shows that next t
   If none of these can be read, the dialog says the PSP will pause for about 12 s and the driver's count runs;
   the driver keeps that count, so later visits are instant. `cache/scan.log` says which way it went and how
   long it took.
+- **HOME:** XLT shows its own "Quit XLT?" dialog in place of the system's (`src/quitdlg.c`): Yes (where the cursor
+  starts, so HOME then ✕ quits as before) leaves to the XMB the way the system's Yes did, No, ○ or HOME again
+  closes it. The system's dialog is switched off with `sceImposeSetHomePopup` (6.60+ NID `0xC08C41EF`) and HOME is
+  read through the kernel. The main loop tells a watchdog thread it is alive every frame: if XLT stops answering
+  for 3 s the system's dialog comes back, so HOME still quits a stuck XLT. It is turned back on before a game or
+  app starts, before a restart and when XLT quits. If it can't be turned off, the system's dialog stays and
+  XLT's never opens (`cache/scan.log`: `HOME: XLT's own dialog ...`). The button test keeps HOME as a button.
+- **Button test (XLT):** a PSP drawn on screen (`src/btntest.c`) where every button lights up while held and
+  stays marked once pressed ("9 of 17 buttons pressed": the d-pad, the face buttons, L, R, SELECT, START, HOME,
+  the volume keys, NOTE and SCREEN), with the analog stick's position, the box it has reached so far and its
+  raw X/Y (128 is the centre: a stick at rest far from it drifts), and the HOLD switch, Wi-Fi switch (not on the
+  E1000), headphones and UMD (not on the Go). HOME, NOTE, SCREEN and the volume keys are read through the
+  kernel (`sysctl_kernel_buttons`). Every press stays in the tester; holding ○ for 1.5 s leaves it.
+- **Check for updates (About):** ✕ joins Wi-Fi (the connection used last) and asks GitHub's API for the latest
+  release of this repository (`src/update.c`). If its tag is newer than `src/version.h`, the dialog shows the
+  version, the download size and the release notes (↑/↓ scroll); drafts and pre-releases are never offered.
+  **Install** downloads the release zip to `cache/update.zip`, checks it against the SHA-256 GitHub lists for the
+  file, unpacks `PSP/GAME/XLT/EBOOT.PBP` from it as `EBOOT.NEW` (it has to be a PBP of the size the zip says),
+  renames the running `EBOOT.PBP` to `EBOOT-<old version>.PBP` and the new one to `EBOOT.PBP`, and refreshes
+  ARK's `VBOOT.PBP` copy when XLT starts at boot. **Restart now** starts the new XLT; **Later** keeps the old one
+  running until the next start (the row says "Restart to finish"). ○ stops a check or a download; nothing on the
+  stick changes until the download is complete and checked. Going back is renaming `EBOOT-<old version>.PBP` to
+  `EBOOT.PBP`. Each step goes to `cache/web.log` (`update: ...`). The JSON parsing, version order and notes
+  are in `src/updparse.c` (host-tested).
 
 ## Control center (SELECT)
 
@@ -107,13 +131,27 @@ center's slider, or while the control center is open.
 
 ## USB mode
 
-Turning USB on (control center) hands the Memory Stick to the computer, so XLT shows one full screen
+(For sending files while XLT keeps running, see USB sync below.) Turning USB on (control center) hands the
+Memory Stick to the computer, so XLT shows one full screen
 instead of the launcher, as the XMB does: "USB mode / Connect the USB cable" until the PC mounts it, then
 "USB connected" (polled twice a second). Nothing underneath is drawn, no icons or previews are loaded, and
 every button except ○ is ignored (SELECT says to leave USB mode first). ○ turns USB off and the library is
 rescanned. Screenshots (L+R+START) are refused while USB is on, since writing the PNG could corrupt the
 stick (`src/cc.c`, `cc_usb_*`). A screen recording is saved before USB mode starts, and none can be started
 while it's on.
+
+## USB sync
+
+Settings > XLT > USB sync lets a computer send, rename and delete files while XLT keeps running: XLT's own
+USB device (the kernel module `plugin/xltsync`, loaded by `src/usbsync.c`) takes file commands from XLT Tool
+or `tools/xltlink.py`, and the PSP's own FAT driver does the writing, so the stick never leaves XLT. Files
+arrive as `NAME.xltpart` and are renamed only once complete and their CRC-32 matches; only XLT's folders can
+be changed (and save folders in `PSP/SAVEDATA`, for XLT Tool's save backups); names are written in Shift-JIS, as
+the PSP keeps them. Whole folders can be deleted in one command, and free space is counted from the FAT in about a
+second. The library rescans by itself after the
+last change, a USB icon and "From PC 45%" show in the status bar, and USB mode pauses sync while it is on.
+64 MB writes at 8.3 MB/s (USB mode: 9.6). How it works, and why it differs from USB mode:
+[USB sync, in depth](USB-Sync.md).
 
 ## Screenshots in games
 
@@ -135,6 +173,18 @@ Inside XLT, L+R+START is XLT's own screenshot. In games it is **xltshot**, a sma
   through zlib with a 4 KB window, in a 48 KB block taken only for the shot (kernel partition, else user).
 - **Inside XLT:** started from the XMB, XLT may count as homebrew and get the plugin too; it sees XLT's module
   and stays out of the way.
+- **Play time:** it also counts how long each game runs, leaving out sleep (a gap of more than 2 s between its
+  once-a-second looks), into `SEPLUGINS/xltplay.bin`: one record per session of 30 s or more, its seconds
+  rewritten every 30 s, so a crash or a power-off loses at most that (`plugin/xltshot/xltplay.h`). At its next
+  start XLT adds the records to its play history (`cache/history.bin`, games started from the XMB too) and deletes
+  the file. The details line then reads "12 h 40 min · played yesterday", and Games and Homebrew can be sorted
+  by **Most played**. PS1 games count too: XLT adds a `pops` line for the plugin to
+  `SEPLUGINS/PLUGINS.TXT` once (turned off or removed later, it stays that way); there it only counts, and
+  as the PSP doesn't tell a plugin which PS1 EBOOT runs, XLT credits the time to the game it launched just
+  before (a PS1 game started from the XMB isn't counted). xltshot's log is kept across loads, up to 16 KB.
+- **For XLT Tool:** `cache/games.txt` lists the games and apps with their play history (kind, path, ID, last
+  played, seconds played, favorite, title; `src/gamesfile.h`), written at start and after a scan that changes
+  the library. XLT Tool reads it over USB sync.
 - **Log:** `SEPLUGINS/xltshot.log` (what it found at start, each shot with its time and frame format); XLT's
   `cache/scan.log` says what it installed or turned off.
 

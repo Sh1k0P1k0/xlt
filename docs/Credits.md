@@ -36,6 +36,14 @@ Built into the EBOOT as data:
 - **Noto Sans** (Regular, Medium, Light), SIL Open Font License 1.1: the text, the clock digits and the logo are
   rendered from it at build time (`tools/bake_atlas.py`, `tools/bake_saver.py`, `tools/make_logo.py`).
 - **Mozilla's CA certificate list** (MPL-2.0), from the build machine's CA bundle (`tools/bake_cacerts.py`).
+- **Noto Sans CJK JP** (Regular), SIL Open Font License 1.1: kana and Japanese symbols, rendered at build time
+  (`tools/bake_atlas.py`).
+
+Read from the PSP at run time, not carried: **kanji** come from the firmware's own Japanese font,
+`flash0:/font/jpn0.pgf` (`src/pgf.c`), the first time one is drawn.
+
+Followed for structure: PSPLINK's `usbhostfs` (BSD licence), for the USB bus driver in `plugin/xltsync`; PPSSPP's
+`Core/Font/PGF.cpp` (GPL-2.0 or later), for the PGF font format in `src/pgf.c`.
 
 Used as references only, no code taken: ARK-5's arkMenu (launching, plugin runlevels, SETTINGS.TXT, the UMD
 drive, USB), cooleyes' PMPlayer Advance and its fork PMPlayer Ultraviolet (the firmware's H.264/AAC decoder

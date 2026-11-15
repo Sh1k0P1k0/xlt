@@ -7,10 +7,14 @@
  *   ui_preview OUTDIR */
 #define main saver_main
 #define ui_draw_battery saver_draw_battery /* ui.c has the real one */
+#define ui_battery_color saver_battery_color
+#define g_cfg saver_g_cfg /* defined below */
 extern int g_rec_preview;
 #include "../src/safestart.h"
 #include "saver_preview.c"
 #undef ui_draw_battery
+#undef ui_battery_color
+#undef g_cfg
 #undef main
 
 #include "../src/ui.h"
@@ -330,7 +334,7 @@ int main(int argc, char **argv)
     dm = gfx_dither_matrix;
     sceGuTexMode(GU_PSM_4444, 0, 0, GU_TRUE);
     sceGuTexImage(0, ATLAS_W, ATLAS_H, ATLAS_W, NULL);
-    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number, to look at each one */
+    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number: the mockups of tools/theme_mockups.sh */
     make_library();
     if (getenv("XLT_DEMO_ART")) load_art(getenv("XLT_DEMO_ART"));
     if (getenv("XLT_DEMO")) make_demo_media();

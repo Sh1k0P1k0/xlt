@@ -6,6 +6,7 @@
 #define GU_PSM_5551 1
 #define GU_PSM_4444 2
 #define GU_PSM_8888 3
+#define GU_PSM_T4 4
 #define GU_SPRITES 6
 #define GU_TEXTURE_16BIT (2 << 0)
 #define GU_COLOR_8888 (7 << 2)
@@ -40,6 +41,8 @@ void sceGuDrawArray(int prim, int vtype, int count, const void *ind, const void 
 void sceGuClearColor(unsigned c);
 void sceGuClear(int flags);
 void sceGuTexFunc(int tfx, int tcc);
+void sceGuClutMode(int cpsm, int shift, int mask, int a3);
+void sceGuClutLoad(int num_blocks, const void *cbp);
 #define sceGuInit() ((void)0)
 #define sceGuTerm() ((void)0)
 #define sceGuStart(a, b) ((void)0)

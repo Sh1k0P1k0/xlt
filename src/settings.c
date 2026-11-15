@@ -6,17 +6,17 @@
  * category, ○ goes back. Sections, in order:
  *
  *   XLT              start at boot (ARK's launcher setting), default ISO
- *                      driver, removed entries, rescan
+ *                      driver, removed entries, rescan, button test, USB sync
  *   Games              ARK: CPU speed, extra memory, caches, logos, UMD region,
  *                      Pause Game (Go)
  *   Plugins            every global line of ARK's PLUGINS.TXT files
- *   Power & Display    screensaver, USB charging, LEDs, backlight auto-off, auto sleep,
+ *   Power & Display    screensaver, battery percentage, USB charging, LEDs, backlight auto-off, auto sleep,
  *                      keeping the paused game (Go)
  *   Sound & Controls   AVLS, enter button, analog stick
  *   Network            WPA2, ad hoc channel, Wi-Fi power save, MAC address
  *   System             language, date and time formats, time zone, summer
  *                      time, UMD drive
- *   About              model, firmware, ARK, nickname
+ *   About              model, firmware, ARK, nickname, check for updates
  *
  * Settings that only change the XMB are not shown (the XMB's CPU speed,
  * hidden game pictures and DLC, QA flags, the XMB region, Vita-only keys);
@@ -50,6 +50,9 @@
 #include "psreg.h"
 #include "saver.h"
 #include "sysctl.h"
+#include "update.h"
+#include "btntest.h"
+#include "usbsync.h"
 
 #define FOOTER_Y 248
 #define TOP_Y 32
@@ -67,9 +70,9 @@
 /* ------------------------------------------------------------------ model */
 
 enum { SRC_ARK, SRC_REG, SRC_PLUG, SRC_XLT, SRC_ACTION, SRC_INFO };
-enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL };
+enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC };
 static const char *const O_LEVEL[LEVEL_COUNT] = {"Off", "By song", "By album"};
-enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY };
+enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST };
 static int s_clear_armed; /* ✕ once on Clear play history: the next ✕ clears */
 enum { C_XLT, C_GAMES, C_PLUGINS, C_POWER, C_SOUND, C_NETWORK, C_SYSTEM, C_ABOUT, C_COUNT };
 _Static_assert(C_COUNT == SETTINGS_SECTIONS, "settings.h's section count");
@@ -200,7 +203,7 @@ static struct {
     int nplug;
     int reg[NREG], reg_ok[NREG];
     char nick[64];
-    int driver0, saver0, sounds0, theme0, autoplay0, level0;
+    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0;
     int recent_dirty;
     Spring knob;     /* the focused switch's knob, Q8: 0 off .. 256 on */
     int knob_id;     /* which row it belongs to, -1 none */
@@ -411,6 +414,11 @@ static void build(void)
              "Forgets which games and apps you played: the Recent rows start over. Favorites stay first.",
              SRC_ACTION, A_CLEAR_HISTORY);
     if (it) snprintf(it->text, sizeof(it->text), "%d", history_count());
+    add(c, "Button test", "Shows every button, the analog stick and the switches as you press them. Hold "
+        "Circle to leave.", SRC_ACTION, A_BTNTEST);
+    add(c, "USB sync", "With the cable in, the PC can send files while you use XLT (for now with "
+        "tools/xltlink.py). The library updates by itself. USB mode still works: sync pauses meanwhile.",
+        SRC_XLT, X_USBSYNC);
 
     c = &s_cats[C_GAMES];
     c->name = SECTIONS[C_GAMES].name;
@@ -458,6 +466,8 @@ static void build(void)
              "screen. Any button wakes it.", SRC_XLT, X_SAVER);
     if (it) { it->opts = O_SAVER; it->nopts = COUNT(O_SAVER); }
     add(c, "Show screensaver", "Shows it now, to try it out. Any button wakes it.", SRC_ACTION, A_SAVER);
+    add(c, "Battery percentage", "Shows the battery level as a number next to the battery icon in the status "
+        "bar and the screensaver.", SRC_XLT, X_BATTERY);
     if (!psp1000)
         ark_item(c, AK_USBCHARGE, "USB charging", "Charges the battery over the USB cable.", O_OFFON, 2);
     reg_items(c, C_POWER);
@@ -509,6 +519,8 @@ static void build(void)
     if (S.nick[0])
         info_item(c, "Nickname", S.nick);
     info_item(c, "Launcher", "XLT " XLT_VERSION);
+    add(c, "Check for updates", "Asks GitHub for a newer XLT over Wi-Fi (the connection used last). Nothing "
+        "is installed until you choose Install.", SRC_ACTION, A_UPDATE);
     storage_items(c);
 
     for (int i = 0; i < C_COUNT; i++)
@@ -588,6 +600,11 @@ static void item_value(const Item *it, char *out, int n)
             snprintf(out, n, "%s", g_cfg.ui_sounds ? "On" : "Off");
         else if (it->key == X_AUTOPLAY)
             snprintf(out, n, "%s", g_cfg.autoplay ? "On" : "Off");
+        else if (it->key == X_BATTERY)
+            snprintf(out, n, "%s", g_cfg.battery_pct ? "On" : "Off");
+        else if (it->key == X_USBSYNC)
+            snprintf(out, n, "%s", !g_cfg.usb_sync ? "Off" : usbsync_talking() ? "On, PC connected"
+                                   : usbsync_attached() ? "On, cable in" : "On");
         else if (it->key == X_LEVEL)
             snprintf(out, n, "%s", O_LEVEL[g_cfg.level >= 0 && g_cfg.level < LEVEL_COUNT ? g_cfg.level : 0]);
         else if (it->key == X_SAVER)
@@ -596,6 +613,13 @@ static void item_value(const Item *it, char *out, int n)
             snprintf(out, n, "%s", O_DRIVER[driver_index(g_cfg.iso_driver)]);
         break;
     case SRC_ACTION:
+        if (it->key == A_UPDATE) { /* what the last check found */
+            int k = update_known();
+            snprintf(out, n, "%s", k == 1 ? "Up to date" : k == 3 ? "Restart to finish" : "");
+            if (k == 2) snprintf(out, n, "%s available", update_release()->version);
+            break;
+        }
+        /* fall through */
     case SRC_INFO:
         snprintf(out, n, "%s", it->text);
         break;
@@ -613,6 +637,10 @@ static int switch_state(const Item *it)
         return g_cfg.ui_sounds;
     if (it->src == SRC_XLT && it->key == X_AUTOPLAY)
         return g_cfg.autoplay;
+    if (it->src == SRC_XLT && it->key == X_BATTERY)
+        return g_cfg.battery_pct;
+    if (it->src == SRC_XLT && it->key == X_USBSYNC)
+        return g_cfg.usb_sync;
     return -1;
 }
 
@@ -654,6 +682,19 @@ static void change(Item *it, int dir)
             g_cfg.ui_sounds = !g_cfg.ui_sounds;
         else if (it->key == X_AUTOPLAY)
             g_cfg.autoplay = !g_cfg.autoplay;
+        else if (it->key == X_BATTERY) /* the status bar follows from the next frame */
+            g_cfg.battery_pct = !g_cfg.battery_pct;
+        else if (it->key == X_USBSYNC) {
+            g_cfg.usb_sync = !g_cfg.usb_sync;
+            if (!g_cfg.usb_sync) {
+                usbsync_stop();
+            } else if (sysctl_usb_active()) {
+                ui_toast("USB sync starts when USB mode is turned off");
+            } else if (usbsync_start() != 0) {
+                ui_toast(usbsync_error());
+                g_cfg.usb_sync = 0;
+            }
+        }
         else if (it->key == X_LEVEL) /* the playing song follows at its next block */
             g_cfg.level = (g_cfg.level + dir + LEVEL_COUNT) % LEVEL_COUNT;
         else if (it->key == X_SAVER)
@@ -704,6 +745,8 @@ void settings_open(void)
     S.autoplay0 = g_cfg.autoplay;
     S.level0 = g_cfg.level;
     S.theme0 = g_cfg.theme;
+    S.battery0 = g_cfg.battery_pct;
+    S.usbsync0 = g_cfg.usb_sync;
     if (!s_tz_labels[0])
         for (int i = 0; i < TZ_COUNT; i++) {
             int m = V_TZ[i] < 0 ? -V_TZ[i] : V_TZ[i];
@@ -743,7 +786,7 @@ static void close_settings(void)
     }
     if (g_cfg.iso_driver != S.driver0 || g_cfg.saver_min != S.saver0 || g_cfg.ui_sounds != S.sounds0 ||
         g_cfg.theme != S.theme0 || g_cfg.autoplay != S.autoplay0 || g_cfg.level != S.level0 ||
-        S.recent_dirty)
+        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || S.recent_dirty)
         bg_post(job_save_ini, NULL, 0);
     S.recent_dirty = 0;
     S.open = 0;
@@ -776,6 +819,9 @@ static void select_item(int i)
     if (i >= S.top[S.cat] + VISIBLE) S.top[S.cat] = i - VISIBLE + 1;
 }
 
+static void upd_open(void);
+static int upd_input(unsigned int p);
+
 static void run_action(Item *it)
 {
     if (it->key == A_REMOVED) {
@@ -802,6 +848,10 @@ static void run_action(Item *it)
             snprintf(it->text, sizeof(it->text), "0");
             ui_toast("Play history cleared");
         }
+    } else if (it->key == A_BTNTEST) {
+        btntest_open();
+    } else if (it->key == A_UPDATE) {
+        upd_open();
     } else if (it->key == A_RESCAN) {
         if (library_scanning()) {
             ui_toast("Already scanning");
@@ -812,6 +862,231 @@ static void run_action(Item *it)
     }
 }
 
+/* ------------------------------------------------------- update dialog */
+
+/* Check for updates: a dialog over About that follows update.c's state. ○ stops a
+ * check or a download and closes it; an install can't be stopped (it is short). */
+#define UPD_W 360
+#define UPD_LINES 96
+#define UPD_SHOWN 6     /* note lines in the dialog */
+static int s_upd_open;
+static Spring s_upd_t;
+static int s_upd_state = -1;   /* the state drawn, to notice changes */
+static char s_upd_line[UPD_LINES][112];
+static int s_upd_nlines, s_upd_top;
+
+/* The notes, wrapped to the dialog's width. */
+static void upd_wrap(void)
+{
+    const char *s = update_notes();
+    int w = UPD_W - 48;
+    s_upd_nlines = s_upd_top = 0;
+    while (*s && s_upd_nlines < UPD_LINES) {
+        const char *eol = strchr(s, '\n');
+        int len = eol ? (int)(eol - s) : (int)strlen(s);
+        if (!len) { /* a blank line */
+            s_upd_line[s_upd_nlines++][0] = 0;
+            s += 1;
+            continue;
+        }
+        int best = 0;
+        char tmp[112];
+        for (int i = 1; i <= len && i < (int)sizeof(tmp); i++) {
+            if (i < len && s[i] != ' ') continue;
+            snprintf(tmp, sizeof(tmp), "%.*s", i, s);
+            if (gfx_text_width(FONT_SMALL, tmp) > w) break;
+            best = i;
+        }
+        if (!best) best = len < (int)sizeof(tmp) - 1 ? len : (int)sizeof(tmp) - 1; /* one long word: cut when drawn */
+        snprintf(s_upd_line[s_upd_nlines++], sizeof(s_upd_line[0]), "%.*s", best, s);
+        s += best;
+        while (*s == ' ') s++;
+        if (*s == '\n') s++;
+    }
+}
+
+static void upd_open(void)
+{
+    if (update_state() != UP_INSTALLED) update_check();
+    s_upd_open = 1;
+    spring_snap(&s_upd_t, 0);
+    spring_to(&s_upd_t, FX(1));
+    sfx_play(SFX_OPEN);
+}
+
+static void upd_close(void)
+{
+    s_upd_open = 0;
+    spring_to(&s_upd_t, 0);
+    update_dismiss();
+    sfx_play(SFX_CLOSE);
+}
+
+static int upd_input(unsigned int p)
+{
+    if (!s_upd_open) return 0;
+    int st = update_state();
+    if (st == UP_INSTALLING) return 1;
+    if (st == UP_AVAILABLE) {
+        if (p & PSP_CTRL_CROSS) { update_install(); sfx_play(SFX_SELECT); }
+        else if (p & PSP_CTRL_CIRCLE) upd_close();
+        else if (p & PSP_CTRL_UP && s_upd_top > 0) s_upd_top--;
+        else if (p & PSP_CTRL_DOWN && s_upd_top + UPD_SHOWN < s_upd_nlines) s_upd_top++;
+        return 1;
+    }
+    if (st == UP_INSTALLED) {
+        if (p & PSP_CTRL_CROSS) {
+            update_request_restart();
+            s_upd_open = 0;
+            spring_to(&s_upd_t, 0);
+            close_settings(); /* settings changed in this visit are saved first */
+        } else if (p & PSP_CTRL_CIRCLE) {
+            upd_close();
+        }
+        return 1;
+    }
+    if (p & PSP_CTRL_CIRCLE || (p & PSP_CTRL_CROSS && (st == UP_LATEST || st == UP_FAILED || st == UP_IDLE))) {
+        if (st == UP_DOWNLOADING) ui_toast("Download stopped");
+        upd_close();
+    }
+    return 1;
+}
+
+static int upd_step(void)
+{
+    int dirty = update_step();
+    int st = update_state();
+    if (st != s_upd_state) {
+        if (st == UP_AVAILABLE) upd_wrap();
+        if (s_upd_open && (st == UP_LATEST || st == UP_AVAILABLE || st == UP_INSTALLED)) sfx_play(SFX_SELECT);
+        if (s_upd_open && st == UP_FAILED) sfx_play(SFX_ERROR);
+        s_upd_state = st;
+        dirty = 1;
+    }
+    int old = s_upd_t.x;
+    spring_step(&s_upd_t);
+    return dirty | (s_upd_t.x != old) | (s_upd_open && update_busy());
+}
+
+/* "2.0 MB", "512 KB": finer than format_size, for a download of a few MB. */
+static void upd_size(char *b, int n, int64_t bytes)
+{
+    if (bytes < 0) bytes = 0;
+    if (bytes >= 1024 * 1024) {
+        unsigned tenths = (unsigned)(bytes * 10 / (1024 * 1024));
+        snprintf(b, n, "%u.%u MB", tenths / 10, tenths % 10);
+    } else {
+        snprintf(b, n, "%u KB", (unsigned)((bytes + 1023) / 1024));
+    }
+}
+
+static void draw_update(int t)
+{
+    int a = s_upd_t.x;
+    if (a <= 0) return;
+    if (a > 256) a = 256;
+    a = a * t >> 8;
+    gfx_set_opacity(a);
+    gfx_rect(0, 0, SCREEN_W, SCREEN_H, WITH_ALPHA(0x000000, 150));
+    int st = update_state();
+    const UpdRelease *r = update_release();
+    int fb = gfx_line_h(FONT_BOLD), fs = gfx_line_h(FONT_SMALL);
+    int notes = st == UP_AVAILABLE && s_upd_nlines > 0;
+    const int w = UPD_W, h = notes ? 214 : st == UP_DOWNLOADING || st == UP_INSTALLED ? 132 : 118,
+              x = (SCREEN_W - w) / 2;
+    int y = (SCREEN_H - h) / 2 + (256 - a) * 12 / 256;
+    gfx_rrect(x, y, w, h, 12, C_SURFACE);
+    char title[64], line[160], line2[96];
+    line[0] = line2[0] = 0;
+    const char *sub = line;
+    switch (st) {
+    case UP_LATEST:
+        snprintf(title, sizeof(title), "XLT is up to date");
+        snprintf(line, sizeof(line), "%s is the newest version.", XLT_VERSION);
+        break;
+    case UP_AVAILABLE: {
+        char sz[16] = "";
+        if (r->zip_size > 0) upd_size(sz, sizeof(sz), r->zip_size);
+        snprintf(title, sizeof(title), "XLT %s is available", r->version);
+        snprintf(line, sizeof(line), "You have %s%s%s", XLT_VERSION, sz[0] ? DOT : "", sz);
+        break;
+    }
+    case UP_DOWNLOADING:
+        snprintf(title, sizeof(title), "Downloading XLT %s", r->version);
+        sub = update_activity();
+        break;
+    case UP_INSTALLING:
+        snprintf(title, sizeof(title), "Installing XLT %s", r->version);
+        sub = update_activity();
+        break;
+    case UP_INSTALLED:
+        snprintf(title, sizeof(title), "XLT %s is installed", r->version);
+        snprintf(line, sizeof(line), "It runs from the next time XLT starts.");
+        if (update_backup()[0]) snprintf(line2, sizeof(line2), "The old one is kept as %s.", update_backup());
+        break;
+    case UP_FAILED:
+        snprintf(title, sizeof(title), "Couldn't update");
+        sub = update_error();
+        break;
+    default:
+        snprintf(title, sizeof(title), "Checking for updates");
+        sub = update_activity();
+        break;
+    }
+    gfx_text_center(FONT_BOLD, SCREEN_W / 2, y + 14, title, C_TEXT);
+    int ty = y + 14 + fb + 4;
+    if (gfx_text_width(FONT_SMALL, sub) <= w - 48) /* centred when it fits */
+        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty, sub, C_MUTED);
+    else
+        gfx_text_fit(FONT_SMALL, x + 24, ty, w - 48, sub, C_MUTED);
+    if (line2[0])
+        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty + fs + 2, line2, C_MUTED);
+    if (st == UP_DOWNLOADING) {
+        int64_t got, total;
+        int kbps;
+        update_progress(&got, &total, &kbps);
+        const int bx = x + 24, bw = w - 48 - 44, by = ty + fs + 12;
+        int pm = total > 0 ? (int)(got * 1000 / total) : 0;
+        if (pm > 1000) pm = 1000;
+        gfx_rrect(bx, by, bw, 6, 3, C_RAISED);
+        int fill = bw * pm / 1000;
+        if (fill >= 6) gfx_rrect(bx, by, fill, 6, 3, C_ACCENT);
+        char pct[16];
+        snprintf(pct, sizeof(pct), "%d %%", pm / 10);
+        gfx_text_right(FONT_SMALL, x + w - 24, by + 3 - fs / 2, pct, C_TEXT);
+        char a1[16], a2[16];
+        upd_size(a1, sizeof(a1), got);
+        upd_size(a2, sizeof(a2), total);
+        snprintf(line, sizeof(line), "%s of %s" DOT "%d KB/s", a1, a2, kbps);
+        gfx_text_center(FONT_SMALL, SCREEN_W / 2, by + 12, line, C_MUTED);
+    }
+    if (notes) {
+        int ny = ty + fs + 10;
+        gfx_rrect(x + 16, ny - 4, w - 32, UPD_SHOWN * fs + 8, 6, C_RAISED);
+        for (int i = 0; i < UPD_SHOWN && s_upd_top + i < s_upd_nlines; i++)
+            gfx_text_fit(FONT_SMALL, x + 24, ny + i * fs, w - 48, s_upd_line[s_upd_top + i], C_TEXT);
+        if (s_upd_top > 0) gfx_text_right(FONT_SMALL, x + w - 20, ny - 2, "^", C_MUTED);
+        if (s_upd_top + UPD_SHOWN < s_upd_nlines)
+            gfx_text_right(FONT_SMALL, x + w - 20, ny + (UPD_SHOWN - 1) * fs, "v", C_MUTED);
+    }
+    static const Hint h_wait[] = {{ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Cancel"}};
+    static const Hint h_stop[] = {{ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Stop"}};
+    static const Hint h_ok[] = {{ICON_BTN_CROSS, NULL, C_BTN_CROSS, "OK"}};
+    static const Hint h_avail[] = {{ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Install"},
+                                   {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Later"}};
+    static const Hint h_done[] = {{ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Restart now"},
+                                  {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Later"}};
+    const Hint *hh = NULL;
+    int hn = 1;
+    if (st == UP_CHECKING || st == UP_IDLE) hh = h_wait;
+    else if (st == UP_DOWNLOADING) hh = h_stop;
+    else if (st == UP_LATEST || st == UP_FAILED) hh = h_ok;
+    else if (st == UP_AVAILABLE) { hh = h_avail; hn = 2; }
+    else if (st == UP_INSTALLED) { hh = h_done; hn = 2; }
+    if (hh) ui_draw_hints(hh, hn, SCREEN_W / 2, y + h - fs - 10);
+    gfx_set_opacity(t);
+}
+
 static void space_cancel(void);
 static int s_space;
 
@@ -819,6 +1094,8 @@ int settings_input(unsigned int p)
 {
     if (!S.open)
         return 0;
+    if (upd_input(p))
+        return 1;
     if (s_space) { /* the free-space dialog: ○ stops it, leaving About does too (settings_step) */
         if (p & PSP_CTRL_CIRCLE) { /* stops it, and back to the sections as ○ always goes */
             space_cancel();
@@ -983,6 +1260,7 @@ int settings_step(void)
     int dirty = S.t.x != old;
     int about = S.open && S.cat == C_ABOUT && S.t.x >= FX(1);
     dirty |= space_step(about, about && S.col == 1);
+    dirty |= upd_step();
     {   /* the focused switch slides; any other row is drawn where it rests */
         Cat *c = &s_cats[S.cat];
         int id = -1, on = 0;
@@ -1238,5 +1516,6 @@ void settings_draw(const SysStatus *st)
     }
     ui_draw_hints(h, n, SCREEN_W / 2, FOOTER_Y + 5);
     draw_space(t);
+    draw_update(t);
     gfx_set_opacity(256);
 }

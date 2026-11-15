@@ -11,12 +11,28 @@ music, videos, pictures and files one button away.
 
 ![XLT in motion](docs/media/xlt_teaser.gif)
 
-**The walk-through** (43 s, no sound):
+**The walk-through** (about 50 s, no sound):
 
-https://github.com/user-attachments/assets/9d6550f0-c342-49eb-9dcf-0f1bcd3a4f90
+https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
+
+## New in 1.1.0
+
+- **USB sync with [XLT Tool](https://github.com/boubounokefalos/xlt-tool).** Send videos, music, pictures, books
+  and games from your PC while XLT keeps running, without USB mode. XLT Tool also shows which games are on the
+  PSP, backs up and restores their saves, and shows the PSP's battery.
+- **Play time.** XLT counts how long you play each game, PS1 games included, and shows it in the game's details
+  ("12 h 40 min · played yesterday"). Games and Homebrew can be sorted by **Most played**.
+- **Check for updates** in Settings → About: XLT finds a newer release on GitHub and installs it over Wi-Fi,
+  keeping the old one.
+- **Battery percentage** in the status bar (it can be turned off in Settings → Power & Display).
+- **XLT's own HOME dialog** ("Quit XLT?"), in XLT's look, in place of the system's.
+- **Button test** in Settings → XLT: every button, the analog stick (with its drift) and the switches.
+- **Japanese, Cyrillic and more** in names, tags and text: kana and symbols built in, kanji from the PSP's own
+  font; file names in Shift-JIS, as the PSP keeps them.
+- **Exit to XMB** now reaches the XMB when XLT was started from it.
 
 ## How it was made
 
@@ -53,9 +69,17 @@ no warranty.
   paused by the START press. Not in the XMB.
 - **Screen recording.** L+R+SELECT records XLT's screens to a video (a video playing included). This works only
   inside XLT, not in games or the XMB, and a recording stops when a game starts.
+- **USB sync.** With **Settings → XLT → USB sync** on and the cable in, [XLT Tool](https://github.com/boubounokefalos/xlt-tool)
+  on your PC sends files straight into XLT's folders while XLT keeps running, and the library updates by itself.
+  A file is only put in place once it has arrived whole and checked, so a pulled cable leaves nothing
+  half-written. USB mode is still there for a file manager.
+- **Play time.** The screenshot plugin also counts how long each game runs (not while the PSP sleeps), PS1
+  games included; XLT adds it to the game's details and to the **Most played** sort.
 - **Settings.** XLT's own options, ARK's settings and plugins, and the PSP's system settings in one place.
   There are eight colour themes, which change at once, and interface sounds. About shows your model, firmware
-  and Memory Stick space.
+  and Memory Stick space, and checks for updates. A button test shows whether every button and the stick work.
+- **Your language.** Accented Latin, Greek, Cyrillic and Japanese (kana built in, kanji from the PSP's own font)
+  in file names, song tags and text.
 - **Screensaver.** A clock with the date and the song playing.
 
 ## Screenshots
@@ -71,7 +95,10 @@ no warranty.
 | ![Control center](docs/media/shot_7_control_center.png) | ![Settings](docs/media/shot_8_settings_theme.png) |
 | The control center (SELECT) | Settings, trying a theme |
 
-![Screensaver](docs/media/shot_9_screensaver.png)
+| ![HOME dialog](docs/media/shot_10_home_dialog.png) | ![Button test](docs/media/shot_11_button_test.png) |
+| HOME: XLT's own "Quit XLT?" | Settings → XLT → Button test |
+| ![Update](docs/media/shot_12_update.png) | ![Screensaver](docs/media/shot_9_screensaver.png) |
+| Settings → About: a newer XLT found (a made-up release) | The clock screensaver |
 
 ## Getting started
 
@@ -80,12 +107,39 @@ You need a PSP with **ARK-4 or ARK-5** installed.
 1. Copy the `XLT` folder to `PSP/GAME/` on the Memory Stick, so you have `PSP/GAME/XLT/EBOOT.PBP`.
 2. Start **XLT** from the XMB's Game menu. The first start looks through the Memory Stick for your games, music,
    videos and pictures, which takes a few seconds; later starts are quicker.
-3. To have your PSP start straight into XLT, turn on **Settings → XLT → Start XLT at boot**. XLT sets itself
+3. Updating from an older XLT: **Settings → About → Check for updates**, or copy the new `XLT` folder over the
+   old one. Your settings and library stay.
+4. To have your PSP start straight into XLT, turn on **Settings → XLT → Start XLT at boot**. XLT sets itself
    up as ARK's launcher and keeps ARK's own menu as `PSP/SAVEDATA/ARK_01234/VBOOT_ARKMENU.PBP`. Turning the
    setting off puts ARK's menu back. Exit to XMB from XLT's power menu takes you to the XMB as usual; the PSP
    then boots into the XMB until you open XLT again.
 
 XLT looks for games in `ISO/` and `PSP/GAME/`, music in `MUSIC/`, videos in `VIDEO/` and pictures in `PICTURE/`.
+
+**From your PC:** [XLT Tool](https://github.com/boubounokefalos/xlt-tool) converts videos, music, pictures, books
+and PS1 games into files the PSP plays, and sends them over USB sync (turn on **Settings → XLT → USB sync** and
+plug the cable in) or to the Memory Stick.
+
+## USB sync or USB mode?
+
+XLT can connect to a PC over the same cable in two ways.
+
+| | **USB sync** (XLT Tool) | **USB mode** (the PSP as a USB drive) |
+|---|---|---|
+| While connected | XLT keeps running: play music, browse, even start a game | The PSP shows "USB connected" and nothing else works |
+| New files in XLT | Appear by themselves a moment after the last one | Only after you leave USB mode and XLT looks again |
+| A cable pulled mid-copy | Nothing half-written is left: a file only appears once it is whole and its checksum matches | A broken file stays on the stick |
+| File names | Always ones the PSP can show (Japanese, accents and all) | The PC writes them its way; a name the PSP can't hold makes the file unreachable |
+| What the PC can change | Only XLT's folders and save data, never system files or plugins | The whole Memory Stick |
+| Games and saves | XLT Tool shows what's on the PSP, sends and removes games, backs up and restores saves, shows the battery | Copy files by hand |
+| Speed (64 MB) | 8.3 MB/s | 9.6 MB/s |
+| On the PC | XLT Tool (Linux for now; allow access once) | Any file manager, no software |
+
+USB sync suits everyday use: sending a few videos or songs, or adding a game, without leaving XLT. USB mode is
+still in the control center for anything else, such as copying a whole folder tree or reaching files outside
+XLT's folders.
+
+How it works, in depth: [USB sync](docs/USB-Sync.md).
 
 ## Controls
 
@@ -101,7 +155,7 @@ L+R+START, which takes screenshots in games too.
 | Anywhere | SELECT | Control center |
 | Anywhere, and in games | L + R + START | Screenshot (saved in `PICTURE/`) |
 | Anywhere | L + R + SELECT | Start or stop recording the screen (saved in `VIDEO/`) |
-| Anywhere | HOME | Exit |
+| Anywhere | HOME | Quit XLT? (Yes / No) |
 | Starting XLT | Hold L | Safe start: skip the library check |
 | Lists | ↑ / ↓, ← / → | Move, a page at a time |
 | Now Playing | ✕ / ← → / L R / △ / □ | Pause / previous, next / seek / shuffle / repeat |
@@ -146,7 +200,8 @@ Special thanks to [08Weber](https://github.com/08Weber) for [psp5](https://githu
 - [PSPSDK](https://github.com/pspdev/pspsdk) (BSD-style), with the SystemControl and kubridge stubs for ARK
 
 **Built in as data**
-- the [Noto Sans](https://fonts.google.com/noto) fonts (SIL Open Font License 1.1);
+- the [Noto Sans](https://fonts.google.com/noto) fonts, and Noto Sans CJK JP for Japanese kana and symbols
+  (SIL Open Font License 1.1);
 - Mozilla's CA certificate list (MPL-2.0), for secure web pages.
 
 **References** (no code taken)
@@ -156,6 +211,11 @@ Special thanks to [08Weber](https://github.com/08Weber) for [psp5](https://githu
 - PPSSPP and psplibdoc: system call details.
 - BetterBright: the brightness range.
 - ARK's own preview video: the PMF layout.
+- PSPLINK's `usbhostfs` (BSD licence): the structure of the USB bus driver for USB sync (`plugin/xltsync`).
+- PPSSPP's `Core/Font/PGF.cpp` (GPL-2.0 or later): the PGF font format, for kanji (`src/pgf.c`).
+
+**Read from your PSP at run time, not included:** kanji come from the firmware's own Japanese font
+(`flash0:/font/jpn0.pgf`).
 
 The interface sounds are synthesised by XLT's build tools.
 

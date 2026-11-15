@@ -52,7 +52,7 @@ starts the game.
 | ISO driver | NP9660 / Inferno / March33 (disc images only) | `cache/games/<GAMEID>.cfg`, only while it differs from the default in Settings |
 | CPU speed | Auto / 133 / 222 / 333 MHz for this game | ARK's `SETTINGS.TXT`, as a `<GAMEID>, cpuclock:333, on` line (ARK-4: `overclock` and similar) |
 | Add to favorites | Favorites come first in the Recent row and get a star in the list | `cache/favorites.txt` |
-| Sort songs / games / apps by | Music: Artist, Album or File name. Games and Homebrew: Name, Last played, Size or Newest | `music_sort`, `games_sort`, `homebrew_sort` in `cache/xlt.ini` |
+| Sort songs / games / apps by | Music: Artist, Album or File name. Games and Homebrew: Name, Last played, Size, Newest or Most played | `music_sort`, `games_sort`, `homebrew_sort` in `cache/xlt.ini` |
 | Add to playlist..., Remove from playlist, Move in playlist | Songs (see [Music](Media.md#music)) | the playlist's file |
 | Move to... | Games and homebrew (see below) | `cache/groups.txt` |
 | Details | Format, size, game ID, region, required firmware, file path | |

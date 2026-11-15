@@ -32,6 +32,12 @@ int sysctl_avls(void);
 /* The buttons only kernel mode sees (PSP_CTRL_VOLUP, VOLDOWN, NOTE, HOME...),
  * through sceCtrl_driver as psp5 does; 0 without ARK. */
 unsigned sysctl_kernel_buttons(void);
+/* The system's HOME dialog (sceImposeSetHomePopup, as psp5): off while XLT runs, which
+ * shows its own (quitdlg.c). While it is off, call sysctl_home_alive() every frame: a
+ * watchdog turns it back on if that stops for 3 s (XLT stuck), so HOME always works. */
+int sysctl_home_popup(int on); /* 0 or more done, -1 not found, -2 no watchdog, else the call's error */
+void sysctl_home_alive(void);
+int sysctl_home_popup_off(void); /* 1 while the system dialog is off */
 
 /* sceImposeSetParam(param, value), read back. 0 if the PSP took it. */
 int sysctl_impose_set(int param, int value);
@@ -41,7 +47,9 @@ const char *sysctl_model_name(void); /* "PSP-3000", ... */
 void sysctl_firmware(char *out, int n); /* "6.61" */
 
 int sysctl_usb_available(void);
-int sysctl_usb_start(void);            /* 0 on success */
+void sysctl_usb_prepare(void);         /* before starting any USB driver */
+int sysctl_usb_load(void);             /* the system's USB modules, once: 0 if there */
+int sysctl_usb_start(void);            /* 0 on success; -1 while the sync link has the port */
 void sysctl_usb_stop(void);
 int sysctl_usb_active(void);
 int sysctl_usb_connected(void);        /* cable in and the PC mounted it */

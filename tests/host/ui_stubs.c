@@ -98,6 +98,11 @@ int reader_step(void) { return 0; }
 int saver_covers(void) { return 0; }
 void saver_draw(const SysStatus *st) { }
 int saver_is_open(void) { return 0; }
+int btntest_covers(void) { return 0; }
+void btntest_draw(const SysStatus *st) { }
+int btntest_is_open(void) { return 0; }
+void quitdlg_draw(void) { }
+int quitdlg_is_open(void) { return 0; }
 int search_covers(void) { return 0; }
 void search_draw(const SysStatus *st) { }
 int search_input(unsigned int pressed) { return 0; }
@@ -117,6 +122,9 @@ const char * settings_section_name(int s) { return NULL; }
 const char * settings_section_sub(int s) { return NULL; }
 int settings_step(void) { return 0; }
 int sysctl_usb_active(void) { return 0; }
+int usbsync_attached(void) { return 0; }
+int usbsync_talking(void) { return 0; }
+int usbsync_progress(char *o, int n) { (void)o; (void)n; return 0; }
 int thumbs_missing(const Entry *e) { return 0; }
 int thumbs_pump(void) { return 0; }
 const Entry * umd_entry(void) { return NULL; }

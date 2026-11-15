@@ -21,6 +21,8 @@
 #include <string.h>
 
 #define ATLAS_DATA_IMPL
+#include "fsname.h"
+#include "pgf.h"
 #include "gfx.h"
 
 #define BUF_W 512
@@ -43,6 +45,12 @@ static Vtx __attribute__((aligned(16))) s_vb[MAX_VERTS];
 static int s_vb_start, s_vb_count;
 static int s_opacity = 256;
 static void *s_atlas;
+static unsigned s_frame = 1; /* counts frames (gfx_begin): the kanji cache keeps cells drawn in this one */
+/* the extended glyphs' palette: white at 16 alphas, tinted by the vertex colour */
+static const u32 s_ext_clut[16] __attribute__((aligned(16))) = {
+    0x00FFFFFF, 0x11FFFFFF, 0x22FFFFFF, 0x33FFFFFF, 0x44FFFFFF, 0x55FFFFFF, 0x66FFFFFF, 0x77FFFFFF,
+    0x88FFFFFF, 0x99FFFFFF, 0xAAFFFFFF, 0xBBFFFFFF, 0xCCFFFFFF, 0xDDFFFFFF, 0xEEFFFFFF, 0xFFFFFFFF,
+};
 
 /* The GE adds this to every pixel it writes (8-bit units), then truncates to
  * 5/6/5 bits; the default is -4..3. Every written pixel is dithered, also one a
@@ -94,7 +102,9 @@ void gfx_init(void)
     void *atlas = (void *)((u32)edram + ATLAS_OFFSET);
     s_atlas = atlas;
     memcpy((void *)((u32)atlas | 0x40000000u), atlas_pixels, sizeof(atlas_pixels));
-    /* The extended glyphs are read by the GE straight from main RAM. */
+    /* The extended glyphs are read by the GE straight from main RAM: 4 bits a texel,
+     * indices into s_ext_clut. */
+    sceKernelDcacheWritebackRange(s_ext_clut, sizeof(s_ext_clut));
     sceKernelDcacheWritebackRange(atlas_ext_pixels, sizeof(atlas_ext_pixels));
 
     sceGuInit();
@@ -140,6 +150,7 @@ void gfx_shutdown(void)
 
 void gfx_begin(u32 clear_color)
 {
+    s_frame++; /* a new frame: the kanji cells drawn in the last one may be reused */
     s_vb_start = s_vb_count = 0;
     s_opacity = 256;
     sceGuStart(GU_DIRECT, s_list);
@@ -312,24 +323,190 @@ void gfx_icon(int id, int x, int y, int w, int h, u32 c)
 
 /* ------------------------------------------------------------------- text */
 
+/* ------------------------------------------------------------------ kanji */
+
+/* Kanji (and anything else neither atlas has) come from the PSP's own Japanese
+ * font, flash0:/font/jpn0.pgf (pgf.h): opened the first time one is drawn, each
+ * glyph read and shrunk to the font's size once, into a 256x256 4-bit texture in
+ * main RAM, 144 cells of 20x20. A cell drawn in this frame is never given to
+ * another glyph: the GE may not have drawn it yet. */
+#define KC_W 256
+#define KC_H 256
+#define KC_CELL 20
+#define KC_COLS (KC_W / KC_CELL)
+#define KC_N (KC_COLS * (KC_H / KC_CELL))
+#define KC_MISS 32
+static unsigned char s_kc_tex[KC_W * KC_H / 2] __attribute__((aligned(16)));
+static struct { uint32_t cp; unsigned char px; unsigned used; Glyph g; } s_kc[KC_N];
+static uint32_t s_kc_miss[KC_MISS]; /* code points the font hasn't: not looked up again */
+static int s_kc_nmiss, s_kc_state; /* 0 not tried, 1 open, -1 no font */
+static Pgf s_pgf;
+static const unsigned char FONT_PX[] = {13, 15, 15}; /* FONT_SMALL, BODY, BOLD (bold shares body's) */
+
+#ifdef __PSP__
+static SceUID s_pgf_fd = -1;
+static int pgf_read(void *ctx, uint32_t off, void *buf, int n)
+{
+    (void)ctx;
+    for (int tries = 0; tries < 2; tries++) {
+        if (s_pgf_fd < 0)
+            s_pgf_fd = sceIoOpen("flash0:/font/jpn0.pgf", PSP_O_RDONLY, 0);
+        if (s_pgf_fd < 0)
+            return -1;
+        if (sceIoLseek32(s_pgf_fd, (int)off, PSP_SEEK_SET) == (int)off) {
+            int r = sceIoRead(s_pgf_fd, buf, n);
+            if (r >= 0)
+                return r;
+        }
+        sceIoClose(s_pgf_fd); /* after sleep the file may need opening again */
+        s_pgf_fd = -1;
+    }
+    return -1;
+}
+static int pgf_start(void) { return pgf_open(&s_pgf, pgf_read, NULL); }
+#else /* the PC previews: the font copied off a PSP, if XLT_PGF names it */
+#include <stdio.h>
+#include <stdlib.h>
+static int pgf_read(void *ctx, uint32_t off, void *buf, int n)
+{
+    FILE *f = ctx;
+    return fseek(f, (long)off, SEEK_SET) ? -1 : (int)fread(buf, 1, (size_t)n, f);
+}
+static int pgf_start(void)
+{
+    const char *path = getenv("XLT_PGF");
+    FILE *f = path ? fopen(path, "rb") : NULL;
+    return f ? pgf_open(&s_pgf, pgf_read, f) : -1;
+}
+#endif
+
+/* The cached glyph of cp at the font's size, decoded and shrunk now if need be;
+ * NULL if the font hasn't it (or there is no font, or no free cell). */
+static const Glyph *kanji_glyph(int font, uint32_t cp)
+{
+    int px = FONT_PX[font >= 0 && font < 3 ? font : 1];
+    int oldest = -1;
+    for (int i = 0; i < KC_N; i++) {
+        if (s_kc[i].cp == cp && s_kc[i].px == px) {
+            s_kc[i].used = s_frame;
+            return &s_kc[i].g;
+        }
+        if (s_kc[i].used != s_frame && (oldest < 0 || s_kc[i].used < s_kc[oldest].used))
+            oldest = i;
+    }
+    for (int i = 0; i < s_kc_nmiss && i < KC_MISS; i++)
+        if (s_kc_miss[i] == cp)
+            return NULL;
+    if (!s_kc_state)
+        s_kc_state = pgf_start() == 0 ? 1 : -1;
+    if (s_kc_state < 0 || oldest < 0)
+        return NULL;
+    static uint8_t pix[PGF_MAX_PIXELS];
+    PgfGlyph pg;
+    int r = pgf_glyph(&s_pgf, cp, &pg, pix);
+    if (r == -1)
+        s_kc_miss[s_kc_nmiss++ % KC_MISS] = cp;
+    if (r)
+        return NULL;
+
+    /* shrunk to px pixels an em by averaging 4x4 samples a pixel, into the cell */
+    int em = s_pgf.em_px > 0 ? s_pgf.em_px : 18;
+    int dw = (pg.w * px + em - 1) / em, dh = (pg.h * px + em - 1) / em;
+    if (dw > KC_CELL) dw = KC_CELL;
+    if (dh > KC_CELL) dh = KC_CELL;
+    int cx = oldest % KC_COLS * KC_CELL, cy = oldest / KC_COLS * KC_CELL;
+    for (int y = 0; y < KC_CELL; y++)
+        memset(s_kc_tex + (cy + y) * (KC_W / 2) + cx / 2, 0, KC_CELL / 2);
+    for (int y = 0; y < dh; y++)
+        for (int x = 0; x < dw; x++) {
+            int sum = 0;
+            for (int sy = 0; sy < 4; sy++)
+                for (int sx = 0; sx < 4; sx++) {
+                    int ux = ((x * 4 + sx) * em + em / 2) / (px * 4), uy = ((y * 4 + sy) * em + em / 2) / (px * 4);
+                    if (ux < pg.w && uy < pg.h)
+                        sum += pix[uy * pg.w + ux];
+                }
+            int v = (sum + 8) / 16;
+            unsigned char *b = s_kc_tex + (cy + y) * (KC_W / 2) + (cx + x) / 2;
+            *b = (unsigned char)((cx + x) & 1 ? (*b & 0x0F) | v << 4 : (*b & 0xF0) | v);
+        }
+#ifdef __PSP__
+    sceKernelDcacheWritebackRange(s_kc_tex + cy * (KC_W / 2), KC_CELL * (KC_W / 2));
+#endif
+    Glyph *g = &s_kc[oldest].g;
+    g->x = (short)cx;
+    g->y = (short)cy;
+    g->w = (short)dw;
+    g->h = (short)dh;
+    g->ox = (short)((pg.left * px + (pg.left >= 0 ? em / 2 : -em / 2)) / em);
+    g->oy = (short)(atlas_fonts[font].ascent - (pg.top * px + em / 2) / em);
+    g->adv = (short)((pg.advance64 * px / em + 32) / 64);
+    s_kc[oldest].cp = cp;
+    s_kc[oldest].px = (unsigned char)px;
+    s_kc[oldest].used = s_frame;
+    return g;
+}
+
+/* 1 if the run of non-ASCII bytes at p (up to the next ASCII byte, or 64 bytes) is
+ * UTF-8 through and through. Deciding a character at a time isn't enough: the
+ * half-width katakana "ﾝｶ" are DD B6 in Shift-JIS, which is also a UTF-8 character. */
+static int utf8_run(const unsigned char *p)
+{
+    for (int n = 0; *p >= 0x80 && n < 64;) {
+        unsigned b = *p;
+        int more = b >= 0xC2 && b <= 0xDF ? 1 : b >= 0xE0 && b <= 0xEF ? 2 : b >= 0xF0 && b <= 0xF4 ? 3 : -1;
+        if (more < 0)
+            return 0;
+        for (int i = 1; i <= more; i++)
+            if ((p[i] & 0xC0) != 0x80)
+                return 0;
+        p += more + 1;
+        n += more + 1;
+    }
+    return 1;
+}
+
 /* Decodes one UTF-8 character and advances *s. Returns its glyph; *ext is set
- * when the glyph lives in the extended atlas (Latin-1, Greek, punctuation). */
+ * when the glyph lives in the extended atlas (Latin-1, Greek, punctuation).
+ * Bytes that aren't UTF-8 but are Shift-JIS are read as Shift-JIS: file names,
+ * which the PSP gives in Shift-JIS (fsname.h), show right wherever they are drawn. */
 static const Glyph *glyph_of(int font, const char **s, int *ext)
 {
     const unsigned char *p = (const unsigned char *)*s;
     unsigned cp = *p++;
     *ext = 0;
+    if (cp >= 0x80) {
+        uint32_t sj;
+        int l;
+        if (!utf8_run(p - 1) && (l = sjis_char(p - 1, 2, &sj)) > 0) {
+            cp = sj;
+            p += l - 1;
+            goto decoded;
+        }
+    }
     if (cp >= 0xC0) {
         int more = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : 1;
         cp &= more == 3 ? 0x07 : more == 2 ? 0x0F : 0x1F;
-        while (more-- && (*p & 0xC0) == 0x80)
+        while (more && (*p & 0xC0) == 0x80) {
             cp = cp << 6 | (*p++ & 0x3F);
+            more--;
+        }
+        if (more) /* cut short: skip what is left of it */
+            while ((*p & 0xC0) == 0x80)
+                p++;
     } else if (cp >= 0x80) {
         cp = '?'; /* a stray continuation byte */
+        while ((*p & 0xC0) == 0x80)
+            p++;
     }
-    while ((*p & 0xC0) == 0x80) /* anything left of a malformed sequence */
-        p++;
+    /* (not after ASCII: the next character may be Shift-JIS, whose first byte
+     * can be 80..BF, as in "a" 83 BF) */
+decoded:
     *s = (const char *)p;
+    if (cp >= 0xFF01 && cp <= 0xFF5E) /* full-width ASCII (Japanese names): the ASCII glyphs */
+        cp -= 0xFEE0;
+    else if (cp == 0x3000) /* the ideographic space */
+        cp = ' ';
     const Glyph *gl = atlas_fonts[font].glyphs;
     if (cp >= 32 && cp < 127)
         return &gl[cp - 32];
@@ -346,6 +523,13 @@ static const Glyph *glyph_of(int font, const char **s, int *ext)
         }
         if (atlas_ext_cps[mid] < cp) lo = mid + 1;
         else hi = mid - 1;
+    }
+    if (cp >= 0x2000) { /* kanji, and the rest of what the PSP's Japanese font has */
+        const Glyph *k = kanji_glyph(font, cp);
+        if (k) {
+            *ext = 2;
+            return k;
+        }
     }
     return &gl['?' - 32];
 }
@@ -365,7 +549,7 @@ int gfx_line_h(int font)
  * extended atlas bound (from main RAM): two texture switches per string that
  * has any, none for plain ASCII. */
 #define EXT_BATCH 128
-static struct { short x, y; const Glyph *g; } s_ext[EXT_BATCH];
+static struct { short x, y; char tex; const Glyph *g; } s_ext[EXT_BATCH]; /* tex: 1 the extended atlas, 2 kanji */
 static int s_next;
 
 static void ext_flush(u32 c)
@@ -373,13 +557,32 @@ static void ext_flush(u32 c)
     if (!s_next)
         return;
     flush();
-    sceGuTexMode(GU_PSM_4444, 0, 0, GU_TRUE);
+    sceGuClutMode(GU_PSM_8888, 0, 0xFF, 0);
+    sceGuClutLoad(2, s_ext_clut); /* 16 entries: 2 blocks of 8 */
+    sceGuTexMode(GU_PSM_T4, 0, 0, GU_TRUE);
     sceGuTexImage(0, ATLAS_EXT_W, ATLAS_EXT_H, ATLAS_EXT_W, atlas_ext_pixels);
     sceGuTexFlush();
+    int kanji = 0;
     for (int i = 0; i < s_next; i++) {
         const Glyph *g = s_ext[i].g;
         int x = s_ext[i].x, y = s_ext[i].y;
+        if (s_ext[i].tex == 2) {
+            kanji = 1;
+            continue;
+        }
         sprite(x + g->ox, y + g->oy, x + g->ox + g->w, y + g->oy + g->h, g->x, g->y, g->x + g->w, g->y + g->h, c);
+    }
+    if (kanji) { /* then the kanji, from their cache (not swizzled) */
+        flush();
+        sceGuTexMode(GU_PSM_T4, 0, 0, GU_FALSE);
+        sceGuTexImage(0, KC_W, KC_H, KC_W, s_kc_tex);
+        sceGuTexFlush();
+        for (int i = 0; i < s_next; i++) {
+            const Glyph *g = s_ext[i].g;
+            int x = s_ext[i].x, y = s_ext[i].y;
+            if (s_ext[i].tex == 2)
+                sprite(x + g->ox, y + g->oy, x + g->ox + g->w, y + g->oy + g->h, g->x, g->y, g->x + g->w, g->y + g->h, c);
+        }
     }
     flush();
     sceGuTexMode(GU_PSM_4444, 0, 0, GU_TRUE);
@@ -400,6 +603,7 @@ static int draw_run(int font, int x, int y, const char *s, const char *end, u32 
                     ext_flush(c);
                 s_ext[s_next].x = x;
                 s_ext[s_next].y = y;
+                s_ext[s_next].tex = (char)ext;
                 s_ext[s_next].g = g;
                 s_next++;
             } else {

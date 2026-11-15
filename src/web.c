@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "fsname.h"
 #include "audiofmt.h"
 #include "web.h"
 #include "webfetch.h"
@@ -822,14 +823,15 @@ static int path_exists(const char *p)
 /* dev:/FOLDER/name, or "name (2).ext" and so on if it is taken. */
 static void dl_path(char *out, int n)
 {
-    char dir[64];
+    char dir[64], name[256];
     snprintf(dir, sizeof(dir), "%s/%s", s_dev, s_dl.folder);
     sceIoMkdir(dir, 0777);
-    snprintf(out, n, "%s/%s", dir, s_dl.name);
-    const char *dot = strrchr(s_dl.name, '.');
-    int base = dot ? (int)(dot - s_dl.name) : (int)strlen(s_dl.name);
+    fsname_from_utf8(s_dl.name, name, sizeof(name), NULL); /* the PSP's encoding (fsname.h) */
+    snprintf(out, n, "%s/%.180s", dir, name);
+    const char *dot = strrchr(name, '.');
+    int base = dot ? (int)(dot - name) : (int)strlen(name);
     for (int k = 2; k < 100 && path_exists(out); k++)
-        snprintf(out, n, "%s/%.*s (%d)%s", dir, base, s_dl.name, k, dot ? dot : "");
+        snprintf(out, n, "%s/%.*s (%d)%s", dir, base, name, k, dot ? dot : "");
 }
 
 static void format_bytes(char *b, int n, int64_t v)

@@ -22,6 +22,8 @@ build/test_probe \
   $F/hb.pbp      "My Homebrew" 5 $F/icon2.expect \
   $F/update.pbp  "" -1 - \
   tests/run.sh   "" -1 -
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_updparse tests/test_updparse.c src/updparse.c
+build/test_updparse
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_arktext tests/test_arktext.c src/arktext.c
 build/test_arktext
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_match tests/test_match.c src/match.c
@@ -48,6 +50,13 @@ cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/h264strip_ru
 tests/check_h264strip.sh build
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_readwin tests/test_readwin.c src/readwin.c
 build/test_readwin
+# File names in Shift-JIS (src/fsname.c): every character both ways, and the same names as XLT Tool's.
+python3 -I tools/bake_sjis.py build/sjis_data.h
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -Ibuild -o build/test_fsname tests/test_fsname.c src/fsname.c
+python3 -I tests/check_fsname.py build/test_fsname
+awk '/^static int utf8_run/,/^}/; /^static const Glyph \*glyph_of/,/^}/' src/gfx.c > build/glyph_of.c
+cc -O1 -g -Wall -Wextra -Wno-unused-variable -fsanitize=address,undefined -Isrc -Ibuild -o build/test_glyph tests/test_glyph.c src/fsname.c
+build/test_glyph
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_vqueue tests/test_vqueue.c src/vqueue.c
 build/test_vqueue
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_delpath tests/test_delpath.c src/delpath.c
@@ -143,6 +152,37 @@ build/test_lrc
 python3 -I tests/make_fat.py $F
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_fatcount tests/test_fatcount.c src/fatcount.c
 build/test_fatcount $F
+# USB sync's path rules (plugin/xltsync/syncpath.c): what the PC may read and change, save data included.
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Iplugin/xltsync -o build/test_syncpath tests/test_syncpath.c \
+   plugin/xltsync/syncpath.c
+build/test_syncpath
+# Play time (src/history.c): xltshot's records added to the play history, with real files in a temp folder.
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Itests/hostio -Isrc -o build/test_history tests/test_history.c
+H=$(mktemp -d) && HOSTIO_ROOT=$H build/test_history; rm -rf "$H"
+# cache/games.txt (src/gamesfile.c), which XLT Tool reads over USB sync.
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -DGAMESFILE_PURE -Isrc -o build/test_gamesfile tests/test_gamesfile.c src/gamesfile.c
+build/test_gamesfile
+# The PSP's Japanese font (src/pgf.c), if XLT_PGF names a copy of flash0:/font/jpn0.pgf (not in the repository).
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_pgf tests/test_pgf.c src/pgf.c
+build/test_pgf "${XLT_PGF:-build/no-jpn0.pgf}" | tail -1
+# Text through the real gfx.c: Latin-1, Greek, Cyrillic, kana and symbols, UTF-8 and Shift-JIS; build/text_frames/.
+mkdir -p build/text_frames
+cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+   -Wno-unused-variable -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
+   -o build/text_preview tests/text_preview.c -lm
+build/text_preview build/text_frames
+# Settings > XLT > Button test (real btntest.c) with a made-up pad; frames in build/btntest_frames/.
+mkdir -p build/btntest_frames
+cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+   -Wno-unused-variable -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
+   -o build/btntest_preview tests/btntest_preview.c -lm
+build/btntest_preview build/btntest_frames
+# XLT's HOME dialog (real quitdlg.c); frames in build/quitdlg_frames/.
+mkdir -p build/quitdlg_frames
+cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+   -Wno-unused-variable -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
+   -o build/quitdlg_preview tests/quitdlg_preview.c -lm
+build/quitdlg_preview build/quitdlg_frames
 # Settings > About and its free-space dialog (real settings.c); frames in build/settings_frames/.
 mkdir -p build/settings_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \

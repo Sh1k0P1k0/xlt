@@ -262,6 +262,26 @@ int plugtext_mentions(const char *text, const char *name)
     return 0;
 }
 
+int plugtext_loads_for_pops(const char *text, const char *name)
+{
+    char want[PLUG_PATH], have[PLUG_PATH];
+    base_lc(name, want, sizeof(want));
+    const char *p = text;
+    while (p && *p) {
+        const char *nl = strchr(p, '\n');
+        int len = nl ? (int)(nl - p) : (int)strlen(p);
+        Line l;
+        if (parse(p, len, &l)) {
+            base_lc(l.path, have, sizeof(have));
+            if (!strcmp(have, want) && (matches(l.runlevel, "", 1) || strstr(l.runlevel, "always") ||
+                                        !strcmp(l.runlevel, "all")))
+                return 1;
+        }
+        p = nl ? nl + 1 : NULL;
+    }
+    return 0;
+}
+
 int plugtext_append(const char *text, const char *line, char *out, int cap)
 {
     int n = (int)strlen(text), crlf = strstr(text, "\r\n") != NULL;

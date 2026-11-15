@@ -27,16 +27,30 @@ FONTS = [  # (C name, file, pixel size)
     ("FONT_BOLD", FONT_MEDIUM, 15),
 ]
 CHARS = [chr(c) for c in range(32, 127)] + ["·"]
-# Second, smaller atlas (drawn from main RAM, one texture switch per string that
-# needs it): Latin-1, Greek and common punctuation, for file names and the reader.
-EXT_CHARS = sorted(set(
-    [chr(c) for c in range(0xA1, 0x100) if c != 0xB7 and c != 0xAD]
-    + [chr(c) for c in range(0x0384, 0x03CF) if c not in (0x0387, 0x038B, 0x038D, 0x03A2)]
-    + [chr(c) for c in (0x0152, 0x0153, 0x0160, 0x0161, 0x0178, 0x017D, 0x017E, 0x0192,
-                        0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E, 0x2020, 0x2021,
-                        0x2022, 0x2026, 0x2030, 0x2039, 0x203A, 0x20AC, 0x2122,
-                        0x2212)]))
-EXT_W, EXT_H = 512, 256
+# Second atlas (drawn from main RAM, one texture switch per string that needs it),
+# for file names, tags and the reader: Latin-1, Greek, Cyrillic, punctuation, and
+# Japanese kana with the symbols Shift-JIS names use. 4 bits a texel (a 16-step
+# alpha palette, GU_PSM_T4), 512x512: 128 KB. Full-width ASCII (U+FF01..FF5E) has
+# no glyphs of its own: gfx.c draws it with the ASCII ones.
+LATIN_EXT = ([chr(c) for c in range(0xA1, 0x100) if c != 0xB7 and c != 0xAD]
+             + [chr(c) for c in range(0x0384, 0x03CF) if c not in (0x0387, 0x038B, 0x038D, 0x03A2)]
+             + [chr(c) for c in range(0x0400, 0x0460)]                      # Cyrillic
+             + [chr(c) for c in (0x0152, 0x0153, 0x0160, 0x0161, 0x0178, 0x017D, 0x017E, 0x0192,
+                                 0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E, 0x2020, 0x2021,
+                                 0x2022, 0x2026, 0x2030, 0x2039, 0x203A, 0x20AC, 0x2122,
+                                 0x2212)])
+CJK_EXT = ([chr(c) for c in range(0x3041, 0x3097)] + [chr(c) for c in range(0x309B, 0x309F)]  # hiragana
+           + [chr(c) for c in range(0x30A1, 0x30FB)] + [chr(c) for c in range(0x30FB, 0x30FF)]  # katakana
+           + [chr(c) for c in range(0xFF61, 0xFFA0)]                                           # half-width kana
+           + list("、。〃々〆〇〈〉《》「」『』【】〒〓〔〕〜")
+           + list("←↑→↓⇒⇔※○●◎◇◆□■△▲▽▼☆★♀♂♪♭♯♥♡♦♣♠✓✔∞"))
+CJK_SET = set(CJK_EXT)
+EXT_CHARS = sorted(set(LATIN_EXT + CJK_EXT))
+EXT_W, EXT_H = 512, 512
+# Japanese and the symbols: Noto Sans CJK JP (the .ttc's face 0), the bold weight for
+# FONT_BOLD only if it fits, else the regular one.
+CJK_REGULAR = "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc"
+CJK_MEDIUM = "/usr/share/fonts/noto-cjk/NotoSansCJK-Medium.ttc"
 
 
 # ---------------------------------------------------------------- icons
@@ -457,6 +471,27 @@ def swizzle4444(img):
     return sw
 
 
+def swizzle_t4(img):
+    """4 bits a texel, an index into the 16-step alpha palette (gfx.c), two to a byte,
+    the left one in the low nibble; swizzled like swizzle4444 (16-byte x 8-row blocks)."""
+    W, H = img.size
+    px = img.load()
+    raw = bytearray()
+    for y in range(H):
+        for x in range(0, W, 2):
+            a = (px[x, y] * 15 + 127) // 255
+            b = (px[x + 1, y] * 15 + 127) // 255
+            raw.append(a | b << 4)
+    bw = W // 2
+    sw = bytearray()
+    for by in range(H // 8):
+        for bx in range(bw // 16):
+            for j in range(8):
+                o = (by * 8 + j) * bw + bx * 16
+                sw += raw[o:o + 16]
+    return sw
+
+
 # ---------------------------------------------------------------- packing
 class Shelf:
     def __init__(self, w, h, pad=1):
@@ -530,19 +565,26 @@ def main():
     ext_items, ext_meta = {}, []
     for fname, path, px_size in FONTS:
         font = ImageFont.truetype(path, px_size)
+        asc = font.getmetrics()[0]
+        # bold's kana are the regular ones: the 15 px glyphs are shared with FONT_BODY
+        cjk_path = CJK_REGULAR
+        cfont = ImageFont.truetype(cjk_path, px_size, index=0)
+        shift = asc - cfont.getmetrics()[0]  # onto Noto Sans's baseline
         glyphs = []
         for i, ch in enumerate(EXT_CHARS):
-            adv = int(round(font.getlength(ch)))
-            box = font.getbbox(ch)
+            f, dy, key = (cfont, shift, f"cjk{px_size}") if ch in CJK_SET else (font, 0, fname)
+            adv = int(round(f.getlength(ch)))
+            box = f.getbbox(ch)
             if box[2] <= box[0]:
                 glyphs.append((None, 0, 0, 0, 0, adv))
                 continue
             gw, gh = box[2] - box[0], box[3] - box[1]
-            g = Image.new("L", (gw, gh), 0)
-            ImageDraw.Draw(g).text((-box[0], -box[1]), ch, font=font, fill=255)
-            tag = f"{fname}:{i}"
-            ext_items[tag] = g
-            glyphs.append((tag, gw, gh, box[0], box[1], adv))
+            tag = f"{key}:{i}"
+            if tag not in ext_items:
+                g = Image.new("L", (gw, gh), 0)
+                ImageDraw.Draw(g).text((-box[0], -box[1]), ch, font=f, fill=255)
+                ext_items[tag] = g
+            glyphs.append((tag, gw, gh, box[0], box[1] + dy, adv))
         ext_meta.append((fname, glyphs))
     ext = Image.new("L", (EXT_W, EXT_H), 0)
     eshelf = Shelf(EXT_W, EXT_H)
@@ -584,11 +626,11 @@ def main():
         ext.save(preview.replace(".png", "_ext.png"))
 
     sw = swizzle4444(atlas)
-    esw = swizzle4444(ext)
+    esw = swizzle_t4(ext)
 
     with open(out_h, "w") as f:
         f.write("/* Generated by tools/bake_atlas.py - do not edit. */\n")
-        f.write("/* Glyphs rendered from Noto Sans (SIL Open Font License 1.1). */\n")
+        f.write("/* Glyphs rendered from Noto Sans and Noto Sans CJK JP (SIL Open Font License 1.1). */\n")
         f.write("#ifndef ATLAS_DATA_H\n#define ATLAS_DATA_H\n\n")
         f.write(f"#define ATLAS_W {ATLAS_W}\n#define ATLAS_H {ATLAS_H}\n")
         f.write(f"#define ATLAS_SOLID_U {solid[0]}\n#define ATLAS_SOLID_V {solid[1]}\n")

@@ -51,6 +51,7 @@ typedef struct {
 /* A row of button hints centred on cx at y. */
 void ui_draw_hints(const Hint *hints, int n, int cx, int y);
 void ui_draw_battery(int x, int y, const SysStatus *st);
+u32 ui_battery_color(const SysStatus *st); /* charging green, under 15 % red, else muted */
 void ui_draw_status_bar(const char *title, const SysStatus *st); /* title left; clock, battery right */
 /* Dims everything drawn so far; t = 0..256. */
 void ui_dim(int t);

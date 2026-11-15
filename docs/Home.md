@@ -12,7 +12,8 @@ They are written to work as a GitHub wiki too: copy the `.md` files into the wik
 | [Start-up](Startup.md) | The boot screen and library check, safe start |
 | [How XLT is built](Architecture.md) | Threads, the atlas, drawing, memory, the VRAM layout |
 | [Library and games](Library-and-Games.md) | Scanning and the index, launching through ARK, the options sheet, folders, removed entries, the UMD drive |
-| [System screens](System.md) | Settings (ARK, plugins, the registry, free space), the control center, volume and AVLS, USB mode, screenshots in games (the xltshot plugin), the screen recorder, the screensaver |
+| [System screens](System.md) | Settings (ARK, plugins, the registry, free space, update check, button test), the HOME dialog, the control center, volume and AVLS, USB mode, USB sync, screenshots and play time in games (the xltshot plugin), the screen recorder, the screensaver |
+| [USB sync, in depth](USB-Sync.md) | XLT's own USB device: the protocol, why it differs from USB mode, Windows and Linux access, speeds |
 | [Music, video and pictures](Media.md) | The music player (MP3, AAC, FLAC, levelling), the video player (MP4, PMF, subtitles, the weighted-prediction stripper), pictures, live previews |
 | [Files, save data, reader, web and search](Files-and-Apps.md) | The file manager, ZIP, save data, the reader (text, PDF), the web browser, search |
 | [Building and testing](Building-and-Tests.md) | Building, the host tests and screen previews, the demo reel |

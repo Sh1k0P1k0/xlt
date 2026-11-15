@@ -10,6 +10,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
+#include "fsname.h"
 #include "fileops.h"
 #include "zip.h"
 
@@ -295,8 +296,9 @@ static void make_dirs(const char *path)
 /* One file (or folder) out of the archive. -1 to stop the whole job. */
 static int extract_entry(const ZipDir *z, const ZipEntry *e, const char *safe, const char *dest, int over)
 {
-    char dst[FOP_PATH], parent[FOP_PATH];
-    if (!join(dst, dest, safe)) {
+    char dst[FOP_PATH], parent[FOP_PATH], fs[FOP_PATH];
+    /* the ZIP's names are UTF-8 (zip_safe_path made them so); the PSP's are Shift-JIS */
+    if (fsname_from_utf8(safe, fs, sizeof(fs), NULL) < 0 || !join(dst, dest, fs)) {
         error("Name too long:", safe);
         return 0;
     }

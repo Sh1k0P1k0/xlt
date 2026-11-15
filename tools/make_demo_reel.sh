@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 OUT=${1:-docs/media}
 D=build/demo
 ART=build/demo_art
-for b in ui np cc settings boot saver; do
+for b in ui np cc settings boot saver quitdlg btntest; do
     [ -x build/${b}_preview ] || { echo "make_demo_reel: build/${b}_preview missing, run make test first"; exit 1; }
 done
 mkdir -p "$OUT"
@@ -29,12 +29,15 @@ last=$(ls "$D/ui" | tail -1)
 XLT_DEMO=$D/cc XLT_DEMO_ART=$ART XLT_DEMO_BG=$D/ui/$last build/cc_preview build/cc_frames
 XLT_DEMO=$D/set build/settings_preview build/settings_frames >/dev/null
 XLT_DEMO=$D/saver build/saver_preview build/saver_frames
+# 1.1's screens, as stills: the HOME dialog over the home screen, the button test, the update check
+XLT_DEMO_BG=$D/ui/f00030.ppm build/quitdlg_preview build/quitdlg_frames >/dev/null
+build/btntest_preview build/btntest_frames >/dev/null
 
 FONT=/usr/share/fonts/noto/NotoSans-Medium.ttf
 # a caption: drawtext between two times (seconds into its scene)
 cap() { # id text from to (the text goes through a file: colons and commas would end the filter)
     printf "%s" "$2" > "$D/cap_$1.txt"
-    printf "drawtext=fontfile=%s:textfile=%s:fontsize=26:fontcolor=white:box=1:boxcolor=0x0d1117@0.78:boxborderw=14:x=(w-text_w)/2:y=h-132:enable='between(t,%s,%s)'" "$FONT" "$D/cap_$1.txt" "$3" "$4"
+    printf "drawtext=fontfile=%s:textfile=%s:fontsize=26:fontcolor=white:box=1:boxcolor=0x0d1117@0.78:boxborderw=14:x=(w-text_w)/2:y=${CAP_Y:-h-132}:enable='between(t,%s,%s)'" "$FONT" "$D/cap_$1.txt" "$3" "$4"
 }
 seg() { # name dir captions...
     n=$1 dir=$2
@@ -52,10 +55,19 @@ seg 4cc "$D/cc" "$(cap c7 'Control center: Wi-Fi, USB, capture, sleep, volume, b
 seg 5set "$D/set" "$(cap c8 'Settings for XLT, ARK, plugins and the PSP' 0.2 1.3)" "$(cap c9 'Themes change at once' 1.4 3.9)" \
     "$(cap c10 'Free and used space, counted in about a second' 6.2 8.1)"
 seg 6saver "$D/saver" "$(cap c11 'A clock screensaver' 0.4 3.4)"
+hold() { # name picture seconds caption
+    ffmpeg -v error -y -loop 1 -framerate 30 -t "$3" -i "$2" -vf "scale=960:544:flags=lanczos,$4,format=yuv420p" \
+        -c:v libx264 -crf 16 -preset slow -r 30 "$D/$1.mp4"
+}
+CAP_Y=h-66  # the stills: under their dialogs
+hold 7home build/quitdlg_frames/q_0_yes.ppm 3.2 "$(cap c12 "HOME asks first, in XLT's own dialog" 0.2 3.0)"
+hold 8btn build/btntest_frames/bt_3_all.ppm 3.2 "$(cap c13 'A button test for every button and the stick' 0.2 3.0)"
+hold 9upd build/settings_frames/upd_4_available.ppm 3.2 "$(cap c14 'XLT updates itself over Wi-Fi' 0.2 3.0)"
+CAP_Y=
 
 # the scenes, crossfading
 F=0.4
-files="1boot 2ui 3np 4cc 5set 6saver"
+files="1boot 2ui 3np 4cc 5set 7home 8btn 9upd 6saver"
 args="" i=0 chain="" prev="[0:v]" off=0
 for f in $files; do args="$args -i $D/$f.mp4"; done
 for f in $files; do
@@ -89,4 +101,7 @@ still "$D/np/f00060.ppm" 6_now_playing
 still "$D/cc/f00080.ppm" 7_control_center
 still "$D/set/f00060.ppm" 8_settings_theme
 still "$D/saver/f00080.ppm" 9_screensaver
+still build/quitdlg_frames/q_0_yes.ppm 10_home_dialog
+still build/btntest_frames/bt_3_all.ppm 11_button_test
+still build/settings_frames/upd_4_available.ppm 12_update
 echo "make_demo_reel: done in $OUT"

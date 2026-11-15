@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "fsname.h"
 #include "ui_internal.h"
 #include "ui_state.h"
 #include "gamecfg.h"
@@ -540,7 +541,9 @@ static void pl_menu_cb(int id, int dir)
         return;
     case PM_RENAME:
         menu_close();
-        osk_open("Rename playlist", pl_name(k), OSK_FILENAME, on_rename_playlist);
+        char shown[128];
+        fsname_to_utf8(pl_name(k), shown, sizeof(shown)); /* its file name: Shift-JIS (fsname.h) */
+        osk_open("Rename playlist", shown, OSK_FILENAME, on_rename_playlist);
         return;
     case PM_NEW:
         menu_close();

@@ -25,6 +25,7 @@
 #include "anim.h"
 #include "gamecfg.h"
 #include "library.h"
+#include "usbsync.h"
 #include "sysctl.h"
 #include "thumbs.h"
 #include "bg.h"
@@ -167,6 +168,8 @@ static void usb_toggle(void)
     }
     if (sysctl_usb_active()) {
         sysctl_usb_stop();
+        if (g_cfg.usb_sync)
+            usbsync_start(); /* back to sync */
         thumbs_init(C.app_dir);
         library_rescan(); /* the PC may have added or removed games */
         if (C.ini_dirty) {
@@ -190,12 +193,15 @@ static void usb_toggle(void)
         bg_flush();
         library_shutdown();
         thumbs_shutdown();
+        usbsync_stop(); /* the port is the storage mode's now; sync comes back after */
         if (sysctl_usb_start() == 0) {
             close_sheet(); /* the USB mode screen takes over until it is turned off */
             spring_to(&C.usb_t, FX(1));
         } else {
             thumbs_init(C.app_dir);
             library_rescan();
+            if (g_cfg.usb_sync)
+                usbsync_start();
             ui_toast("Couldn't start USB");
         }
     }
@@ -261,6 +267,8 @@ static void power_action(int a)
     bg_flush(); /* queued settings writes land before the power goes */
     music_shutdown();
     video_shutdown();
+    if (a == P_SHUTDOWN || a == P_RESTART)
+        usbsync_stop(); /* (sleep keeps it: it restarts on waking) */
     if (a == P_SHUTDOWN) {
         library_shutdown();
         thumbs_shutdown();

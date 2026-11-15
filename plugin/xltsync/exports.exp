@@ -1,0 +1,15 @@
+# xltsync's exports: the module's own, and xltsyncStatus for XLT (kernel only:
+# XLT calls it through kubridge, see src/usbsync.c).
+PSP_BEGIN_EXPORTS
+
+PSP_EXPORT_START(syslib, 0, 0x8000)
+PSP_EXPORT_FUNC_HASH(module_start)
+PSP_EXPORT_FUNC_HASH(module_stop)
+PSP_EXPORT_VAR_HASH(module_info)
+PSP_EXPORT_END
+
+PSP_EXPORT_START(XLTSync, 0, 0x0001)
+PSP_EXPORT_FUNC_HASH(xltsyncStatus)
+PSP_EXPORT_END
+
+PSP_END_EXPORTS

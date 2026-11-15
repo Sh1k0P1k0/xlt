@@ -255,9 +255,22 @@ void launcher_sync(const char *dir)
     bg_post(job_sync, NULL, 0);
 }
 
+/* 1 if ARK's "start the launcher" setting is on and its launcher (VBOOT.PBP) is XLT */
+static int xlt_is_ark_launcher(void)
+{
+    static ArkCfg c;
+    char *extra = malloc(16 * 1024), vboot[200];
+    int on = extra && ark_load_cfg(&c, extra, 16 * 1024) == 0 && c.value[AK_LAUNCHER] > 0;
+    free(extra);
+    ark_file(vboot, sizeof(vboot), "VBOOT.PBP");
+    return on && is_xlt(vboot);
+}
+
 void launcher_before_exit(void)
 {
-    if (!s_is_launcher || !ark_version())
+    /* Also when this XLT was started from the XMB (PSP/GAME/XLT): with the launcher
+     * setting on, ARK would start its copy of XLT instead of going to the XMB. */
+    if (!ark_version() || (!s_is_launcher && !xlt_is_ark_launcher()))
         return;
     /* ARK would start the launcher again: off until XLT starts next */
     if (set_launcher(0) == 0) {

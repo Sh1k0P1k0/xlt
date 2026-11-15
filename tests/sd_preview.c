@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     dm = gfx_dither_matrix;
     sceGuTexMode(GU_PSM_4444, 0, 0, GU_TRUE);
     sceGuTexImage(0, ATLAS_W, ATLAS_H, ATLAS_W, NULL);
-    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number, to look at each one */
+    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number: the mockups of tools/theme_mockups.sh */
     static SdItem saves[7], backups[2];
     fake(&saves[0], "ULUS10041DATA00", "Crisis Core: Final Fantasy VII", "Chapter 3 - Banora", 1300000, "");
     fake(&saves[1], "UCUS98632SYS", "Patapon 2", "System data", 49000, "");

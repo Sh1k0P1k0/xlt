@@ -114,6 +114,12 @@ int main(void)
             "game, ms0:/SEPLUGINS/cwcheat.prx, on\r\n"
             "ULUS10041, ms0:/SEPLUGINS/XLTSHOT.PRX, off\r\n";
         CHECK(plugtext_mentions(t, "xltshot.prx"), "xltshot found on a game-ID line, any case");
+        CHECK(!plugtext_loads_for_pops("game, ms0:/SEPLUGINS/xltshot.prx, on\n", "xltshot.prx"),
+              "a game line doesn't load it for PS1 games");
+        CHECK(plugtext_loads_for_pops("game, ms0:/SEPLUGINS/xltshot.prx, on\nPOPS, ms0:/SEPLUGINS/XLTSHOT.PRX, off\n",
+                                      "xltshot.prx"), "a pops line, even off, is the user's");
+        CHECK(plugtext_loads_for_pops("always, ms0:/SEPLUGINS/xltshot.prx, on\n", "xltshot.prx"), "always counts");
+        CHECK(!plugtext_loads_for_pops("pops, ms0:/SEPLUGINS/cdda.prx, on\n", "xltshot.prx"), "another plugin");
         CHECK(!plugtext_mentions("game, ms0:/SEPLUGINS/cwcheat.prx, on\n# xltshot.prx\n", "xltshot.prx"),
               "a comment isn't a mention");
         CHECK(plugtext_is_screenshot("ms0:/SEPLUGINS/ScreenShot.prx") && plugtext_is_screenshot("ms0:/x/PSPSHOT.PRX") &&

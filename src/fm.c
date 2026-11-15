@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "fsname.h"
 #include "safestart.h"
 #include "audiofmt.h"
 #include "zip.h"
@@ -869,10 +870,11 @@ static void start_job(int op, int n, const char *dest)
     power_boost();
 }
 
-static void on_rename(const char *text)
+static void on_rename(const char *typed)
 {
     const FEnt *e = cur();
-    if (!text || !e || !strcmp(text, e->name))
+    char text[256];
+    if (!typed || !e || fsname_from_utf8(typed, text, sizeof(text), NULL) < 0 || !strcmp(text, e->name))
         return;
     static RenArg r;
     r.kind = 0;
@@ -891,9 +893,10 @@ static void on_rename(const char *text)
     F.rescan_pending = 1;
 }
 
-static void on_mkdir(const char *text)
+static void on_mkdir(const char *typed)
 {
-    if (!text)
+    char text[256];
+    if (!typed || fsname_from_utf8(typed, text, sizeof(text), NULL) < 0)
         return;
     static RenArg r;
     r.kind = 1;
@@ -971,7 +974,9 @@ static void menu_cb(int id, int dir)
                 ui_toast("The system needs that folder");
                 return;
             }
-            osk_open("Rename", e->name, OSK_FILENAME, on_rename);
+            char shown[256];
+            fsname_to_utf8(e->name, shown, sizeof(shown)); /* typed in UTF-8, saved in Shift-JIS (fsname.h) */
+            osk_open("Rename", shown, OSK_FILENAME, on_rename);
         }
         return;
     case A_NEWDIR:

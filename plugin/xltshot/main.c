@@ -9,7 +9,10 @@
  *
  * Memory: the PNG encoder's working memory (~40 KB) is taken only for the shot,
  * from the kernel partition or, failing that, the user one. Everything is logged
- * to SEPLUGINS/xltshot.log on the same device. */
+ * to SEPLUGINS/xltshot.log on the same device.
+ *
+ * Play time: it also counts how long the game runs, leaving out sleep, into
+ * SEPLUGINS/xltplay.bin, which XLT adds to its play history (xltplay.h). */
 #include <pspkernel.h>
 #include <pspctrl.h>
 #include <pspdisplay.h>
@@ -20,8 +23,11 @@
 /* from the kernel's SysclibForKernel (libpspsysclib_kernel_660), which the SDK doesn't declare */
 int snprintf(char *buf, size_t n, const char *fmt, ...);
 #include <systemctrl.h>
+#include <systemctrl_se.h>
+#include <pspinit.h>
 #include <string.h>
 #include "pngout.h"
+#include "xltplay.h"
 
 PSP_MODULE_INFO("XLTShot", PSP_MODULE_KERNEL, 1, 0);
 
@@ -29,6 +35,7 @@ PSP_MODULE_INFO("XLTShot", PSP_MODULE_KERNEL, 1, 0);
 #define NID_CTRL_INTERCEPT 0x7CA723DC /* sceCtrlSetButtonMasks / Intercept */
 #define NID_DISP_GETBUF    0xEEDA2E54 /* sceDisplayGetFrameBuf */
 #define NID_RTC_LOCALTIME  0xE7C27D1B /* sceRtcGetCurrentClockLocalTime */
+#define NID_RTC_TICK       0x3F7AD767 /* sceRtcGetCurrentTick */
 #define COMBO (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)
 #define POLL_US 20000
 
@@ -36,6 +43,7 @@ static int (*s_peek)(SceCtrlData *, int);
 static u32 (*s_intercept)(u32, u32);
 static int (*s_getbuf)(void **, int *, int *, int);
 static int (*s_localtime)(ScePspDateTime *);
+static int (*s_tick)(u64 *);
 static char s_dev[8] = "ms0:";
 static SceUID s_thread = -1;
 static volatile int s_run = 1;
@@ -220,6 +228,89 @@ static void take(void)
         n_paused, blk < 0 ? ", no memory" : "");
 }
 
+/* -------------------------------------------------------------- play time */
+
+static struct {
+    XltPlayRecord rec;
+    int offset;           /* where the record is in the file, -1 until it is written */
+    u64 us;               /* played so far, in microseconds */
+    u64 last;             /* system time at the last look */
+    unsigned written;     /* seconds last written */
+} P = {.offset = -1};
+
+#define GAP_US 2000000    /* a longer pause between looks is sleep (or the PSP held still): not play */
+
+static void play_start(void)
+{
+    memset(&P, 0, sizeof(P));
+    P.offset = -1;
+    P.rec.magic = XLTPLAY_MAGIC;
+    u64 started = 0;
+    if (s_tick)
+        s_tick(&started);
+    P.rec.started = started;
+    int api = sceKernelInitApitype();
+    const char *what = NULL;
+    if (api >= 0x123 && api <= 0x126) /* an ISO, through ARK's ISO drivers */
+        what = sctrlSEGetUmdFile();
+    else if (api == 0x120 || api == 0x160) /* the disc in the drive */
+        what = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN"; /* the path XLT's UMD entry has (src/umd.c) */
+    else
+        what = sceKernelInitFileName();
+    snprintf(P.rec.path, sizeof(P.rec.path), "%s", what ? what : "");
+    if (api >= 0x120 && api <= 0x126) {
+        game_id(P.rec.id, sizeof(P.rec.id));
+        if (!strcmp(P.rec.id, "game"))
+            P.rec.id[0] = 0;
+    }
+    P.last = sceKernelGetSystemTimeWide();
+    LOG("play time: apitype %x, %.120s%s%s", api, P.rec.path, P.rec.id[0] ? ", " : "", P.rec.id);
+}
+
+/* Writes the record (appended the first time, its seconds after that). */
+static void play_write(void)
+{
+    char p[64];
+    snprintf(p, sizeof(p), "%s" XLTPLAY_FILE, s_dev);
+    P.rec.seconds = (unsigned)(P.us / 1000000u);
+    SceUID fd = sceIoOpen(p, PSP_O_WRONLY | PSP_O_CREAT, 0777);
+    if (fd < 0)
+        return;
+    if (P.offset < 0) {
+        int end = sceIoLseek32(fd, 0, PSP_SEEK_END);
+        if (end >= 0 && end % sizeof(XltPlayRecord) == 0 &&
+            sceIoWrite(fd, &P.rec, sizeof(P.rec)) == sizeof(P.rec))
+            P.offset = end;
+        LOG("play time: record %s at %d", P.offset >= 0 ? "written" : "NOT written", end);
+    } else if (sceIoLseek32(fd, P.offset + offsetof(XltPlayRecord, seconds), PSP_SEEK_SET) >= 0) {
+        sceIoWrite(fd, &P.rec.seconds, sizeof(P.rec.seconds));
+    }
+    sceIoClose(fd);
+    P.written = P.rec.seconds;
+}
+
+/* Called about once a second while the game runs. */
+static void play_tick(int in_xlt)
+{
+    u64 now = sceKernelGetSystemTimeWide(), d = now - P.last;
+    P.last = now;
+    if (in_xlt)
+        return; /* XLT itself started from the XMB: not a game */
+    /* (no path: the PSP didn't say what runs, as in PS1 games; XLT then credits the
+     * time to the game it launched just before, see history_import_play) */
+    if (d < GAP_US)
+        P.us += d;
+    unsigned s = (unsigned)(P.us / 1000000u);
+    if ((P.offset < 0 && s >= XLTPLAY_FIRST_S) || (P.offset >= 0 && s - P.written >= XLTPLAY_EVERY_S))
+        play_write();
+}
+
+static void play_stop(void)
+{
+    if (P.offset >= 0 && (unsigned)(P.us / 1000000u) != P.written)
+        play_write();
+}
+
 /* ----------------------------------------------------------------- thread */
 
 /* XLT started from the XMB can count as homebrew and get this plugin too: XLT has
@@ -230,6 +321,19 @@ static int watch(SceSize args, void *argp)
 {
     int held = 0, masked = 0, tick = 0, in_xlt = 0;
     sceKernelDelayThread(2000000); /* let the game start first */
+    play_start();
+    int api = sceKernelInitApitype();
+    if (api == 0x144 || api == 0x155) {
+        /* a PS1 game (POPS): play time only. Its picture isn't in a frame buffer this
+         * reads the PSP way, and its buttons are POPS's own: hands off. */
+        LOG("PS1 game: play time only");
+        while (s_run) {
+            play_tick(0);
+            sceKernelDelayThread(1000000);
+        }
+        play_stop();
+        return 0;
+    }
     while (s_run) {
         SceCtrlData pad;
         memset(&pad, 0, sizeof(pad));
@@ -238,6 +342,7 @@ static int watch(SceSize args, void *argp)
             if (x && !in_xlt) LOG("XLT is running: keeping out of its way");
             in_xlt = x;
             if (in_xlt && masked && s_intercept) { s_intercept(PSP_CTRL_START, 0); masked = 0; }
+            play_tick(in_xlt);
         }
         if (!in_xlt && s_peek && s_peek(&pad, 1) >= 0) {
             int lr = (pad.Buttons & COMBO) == COMBO;
@@ -254,6 +359,7 @@ static int watch(SceSize args, void *argp)
     }
     if (masked && s_intercept)
         s_intercept(PSP_CTRL_START, 0);
+    play_stop();
     return 0;
 }
 
@@ -268,13 +374,23 @@ int module_start(SceSize args, void *argp)
     s_localtime = (void *)sctrlHENFindFunction("sceRTC_Service", "sceRtc_driver", NID_RTC_LOCALTIME);
     if (!s_localtime)
         s_localtime = (void *)sctrlHENFindFunction("sceRTC_Service", "sceRtc", NID_RTC_LOCALTIME);
+    s_tick = (void *)sctrlHENFindFunction("sceRTC_Service", "sceRtc_driver", NID_RTC_TICK);
+    if (!s_tick)
+        s_tick = (void *)sctrlHENFindFunction("sceRTC_Service", "sceRtc", NID_RTC_TICK);
     char l[176];
-    snprintf(l, sizeof(l), "xltshot 1.0: peek %s, start mask %s, frame buffer %s, clock %s", s_peek ? "ok" : "MISSING",
-             s_intercept ? "ok" : "MISSING", s_getbuf ? "ok" : "MISSING", s_localtime ? "ok" : "MISSING");
-    log_line(l, 1);
+    /* the log is kept across loads (a game, then XLT, each load it), up to 16 KB */
+    char lp[64];
+    snprintf(lp, sizeof(lp), "%sSEPLUGINS/xltshot.log", s_dev);
+    SceIoStat st;
+    int big = sceIoGetstat(lp, &st) >= 0 && st.st_size > 16 * 1024;
+    snprintf(l, sizeof(l), "-- xltshot 1.2, apitype %x: peek %s, start mask %s, frame buffer %s, clock %s, tick %s",
+             sceKernelInitApitype(), s_peek ? "ok" : "MISSING", s_intercept ? "ok" : "MISSING",
+             s_getbuf ? "ok" : "MISSING", s_localtime ? "ok" : "MISSING", s_tick ? "ok" : "MISSING");
+    log_line(l, big);
     s_thread = sceKernelCreateThread("xltshot", watch, 0x18, 0x2000, 0, NULL);
-    if (s_thread >= 0)
-        sceKernelStartThread(s_thread, 0, NULL);
+    int started = s_thread >= 0 ? sceKernelStartThread(s_thread, 0, NULL) : s_thread;
+    if (s_thread < 0 || started < 0)
+        LOG("thread: %08x / %08x", (unsigned)s_thread, (unsigned)started);
     return 0;
 }
 

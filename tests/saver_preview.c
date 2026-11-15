@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include "gfx.c"
+#include "fsname.c"
+#include "pgf.c"
 #include "theme.c"
 #include "saverdraw.c"
 
@@ -59,12 +61,27 @@ void sceGuClear(int flags)
             }
 }
 
+static const unsigned *clut; /* sceGuClutLoad's: 8888 entries (the extended glyphs' alphas) */
+void sceGuClutMode(int cpsm, int shift, int mask, int a3) { (void)cpsm; (void)shift; (void)mask; (void)a3; }
+void sceGuClutLoad(int num_blocks, const void *cbp) { (void)num_blocks; clut = cbp; }
+
 static void texel(int x, int y, float out[4])
 {
     if (x < 0) x = 0;
     if (y < 0) y = 0;
     if (x >= tex.w) x = tex.w - 1;
     if (y >= tex.h) y = tex.h - 1;
+    if (tex.psm == GU_PSM_T4) { /* 4 bits a texel, the left one in the low nibble */
+        int rowb = tex.tbw / 2, xb = x / 2, off;
+        if (tex.swz)
+            off = ((y / 8) * (rowb / 16) + xb / 16) * 128 + (y % 8) * 16 + xb % 16;
+        else
+            off = y * rowb + xb;
+        unsigned idx = (tex.p[off] >> (x & 1 ? 4 : 0)) & 15, c = clut ? clut[idx] : idx * 0x11111111u;
+        for (int k = 0; k < 4; k++)
+            out[k] = ((c >> (8 * k)) & 0xFF) / 255.f;
+        return;
+    }
     if (tex.psm == GU_PSM_8888) {
         const unsigned char *q = tex.p + (y * tex.tbw + x) * 4;
         for (int k = 0; k < 4; k++)
@@ -130,6 +147,9 @@ void sceGuDrawArray(int prim, int vtype, int count, const void *ind, const void 
 }
 
 /* ---------------------------------------------------------------- ui.c's battery */
+
+GlobalCfg g_cfg = {.battery_pct = 1}; /* the screensaver shows the percentage (the default) */
+u32 ui_battery_color(const SysStatus *st) { (void)st; return C_MUTED; }
 
 void ui_draw_battery(int x, int y, const SysStatus *st)
 {

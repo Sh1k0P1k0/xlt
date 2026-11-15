@@ -22,6 +22,7 @@
 #include "groups.h"
 #include "library.h"
 #include "system.h"
+#include "gamesfile.h"
 #include "history.h"
 #include "gamecfg.h"
 #include "safestart.h"
@@ -90,6 +91,8 @@ static int load_index(Entry **out)
     return n;
 }
 
+static char s_cache_dir[200];
+
 static void save_index(const Entry *e, int n)
 {
     SceUID fd = sceIoOpen(s_index_path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
@@ -125,8 +128,8 @@ static int cmp_game(const void *a, const void *b)
 {
     const Entry *x = &s_entries[*(const int *)a], *y = &s_entries[*(const int *)b];
     int mode = g_cfg.game_sort[s_sort_view == VIEW_HOMEBREW];
-    uint64_t px = mode == GSORT_PLAYED ? history_played(x->path) : 0;
-    uint64_t py = mode == GSORT_PLAYED ? history_played(y->path) : 0;
+    uint64_t px = mode == GSORT_PLAYED ? history_played(x->path) : mode == GSORT_TIME ? history_seconds(x->path) : 0;
+    uint64_t py = mode == GSORT_PLAYED ? history_played(y->path) : mode == GSORT_TIME ? history_seconds(y->path) : 0;
     return gsort_cmp(x, y, mode, px, py);
 }
 
@@ -559,6 +562,7 @@ static int scan_thread(SceSize args, void *argp)
         qsort(s.out, s.n, sizeof(Entry), cmp_path);
         if (!same_list(s.out, s.n, s.old, s.old_n)) {
             save_index(s.out, s.n);
+            gamesfile_write(s_cache_dir, s.out, s.n); /* for XLT Tool */
             s_result = s.out;
             s_result_n = s.n;
             s.out = NULL;
@@ -586,6 +590,7 @@ int library_progress(int *done, int *total)
 }
 
 void library_note(const char *msg) { scan_log("%s", msg); }
+const char *library_cache_dir(void) { return s_cache_dir; }
 
 /* ------------------------------------------------------------------ setup */
 
@@ -595,12 +600,14 @@ void library_init(const char *app_dir, const char *self_path, int scan)
     snprintf(cache, sizeof(cache), "%.180scache", app_dir);
     sceIoMkdir(cache, 0777);
     snprintf(s_index_path, sizeof(s_index_path), "%s/index.bin", cache);
+    snprintf(s_cache_dir, sizeof(s_cache_dir), "%s", cache);
     snprintf(s_log_path, sizeof(s_log_path), "%s/scan.log", cache);
     sceIoRemove(s_log_path); /* a fresh log each start */
     snprintf(s_self, sizeof(s_self), "%s", self_path);
 
     SceInt64 t0 = sceKernelGetSystemTimeWide();
     s_count = load_index(&s_entries);
+    gamesfile_write(s_cache_dir, s_entries, s_count); /* the play history may have changed since (a game) */
     build_views();
     scan_log("start: index of %d entries loaded in %d ms; %s", s_count, ms_since(t0),
              scan ? "scanning" : "back from a game: no scan");

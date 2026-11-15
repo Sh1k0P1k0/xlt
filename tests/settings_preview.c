@@ -11,6 +11,14 @@
 
 #include "../src/gamecfg.h"
 #include "../src/sysctl.h"
+#include "../src/usbsync.h"
+int usbsync_active(void) { return 0; }
+int usbsync_start(void) { return -1; }
+void usbsync_stop(void) {}
+const char *usbsync_error(void) { return ""; }
+int usbsync_attached(void) { return 0; }
+int usbsync_talking(void) { return 0; }
+int usbsync_progress(char *o, int n) { (void)o; (void)n; return 0; }
 #include "../src/library.h"
 #include "../src/bg.h"
 #include "../src/sfx.h"
@@ -29,6 +37,7 @@ void library_rescan(void) {}
 void library_resort(void) {}
 int library_scanning(void) { return 0; }
 void saver_start(void) {}
+void btntest_open(void) {}
 void sfx_play(int id) { (void)id; }
 void ui_toast(const char *m) { printf("toast: %s\n", m); }
 void ui_library_changed(void) {}
@@ -70,6 +79,7 @@ void launcher_sync_now(void) {} /* arklauncher.c: the ARK folder isn't there on 
 int sysctl_impose_set(int p, int v) { (void)p; (void)v; return -1; }
 void sysctl_firmware(char *b, int n) { snprintf(b, n, "6.61"); }
 int sysctl_model(void) { return 10; }
+int sysctl_usb_active(void) { return 0; }
 const char *sysctl_model_name(void) { return "PSP-E1004 (Street)"; }
 
 /* the count: driven by hand below */
@@ -87,6 +97,36 @@ int sysctl_storage_count_start(void) { s_cstate = s_raw_ok ? COUNT_RUNNING : COU
 int sysctl_storage_count_state(int *pm) { if (pm) *pm = s_cpm; return s_cstate; }
 void sysctl_storage_count_cancel(void) { s_cancels++; s_cstate = COUNT_CANCELLED; }
 const char *sysctl_storage_count_how(int *ms) { if (ms) *ms = 1840; return "msstor0p1: (kernel)"; }
+
+/* update.c, stood in for: the dialog's states are set by the test */
+#include "../src/update.h"
+static int s_ust, s_uknown, s_ucalls[4]; /* check, install, stop, dismiss */
+static UpdRelease s_urel = {.tag = "v1.2.0", .version = "1.2.0", .zip_size = 2093210};
+static const char *s_unotes = "A made-up release, to show the dialog.\n\nWhat's new\n\n- Something new in Music.\n"
+                              "- The old XLT is kept as EBOOT-1.1.0.PBP.\n"
+                              "- Fixes for a few rare cases.\n- A very long line to see the wrapping and "
+                              "the scroll marks work as they should at the dialog's width.\n- Eight\n- Nine";
+static int64_t s_ugot;
+void update_check(void) { s_ucalls[0]++; s_ust = UP_CHECKING; }
+void update_install(void) { s_ucalls[1]++; s_ust = UP_DOWNLOADING; }
+void update_stop(void) { s_ucalls[2]++; }
+void update_dismiss(void) { s_ucalls[3]++; if (s_ust != UP_INSTALLED) s_ust = UP_IDLE; }
+int update_step(void) { return 0; }
+int update_state(void) { return s_ust; }
+int update_busy(void) { return s_ust == UP_CHECKING || s_ust == UP_DOWNLOADING || s_ust == UP_INSTALLING; }
+const UpdRelease *update_release(void) { return &s_urel; }
+const char *update_notes(void) { return s_unotes; }
+const char *update_error(void) { return "The server refused the file (503)"; }
+const char *update_activity(void)
+{
+    return s_ust == UP_INSTALLING ? "Checking the download..." : s_ust == UP_CHECKING ? "Connecting to Wi-Fi..." : "From GitHub, over Wi-Fi";
+}
+void update_progress(int64_t *g, int64_t *t, int *k) { *g = s_ugot; *t = s_urel.zip_size; *k = 143; }
+const char *update_backup(void) { return "EBOOT-1.1.0.PBP"; }
+int update_known(void) { return s_uknown; }
+static int s_urestart;
+void update_request_restart(void) { s_urestart = 1; }
+int update_take_restart(void) { return 0; }
 
 #include "../src/settings.c"
 
@@ -221,6 +261,76 @@ int main(int argc, char **argv)
     settings_input(PSP_CTRL_RIGHT);
     frames(5);
     CHECK(s_driver_calls == 1, "the driver counted again (%d)", s_driver_calls);
+
+    /* Check for updates: each state of its dialog */
+    {
+        Cat *ab = &s_cats[C_ABOUT];
+        int row = -1;
+        for (int i = 0; i < ab->n; i++)
+            if (ab->items[i].src == SRC_ACTION && ab->items[i].key == A_UPDATE) row = i;
+        CHECK(row >= 0, "no Check for updates row in About");
+        if (row >= 0) {
+            S.sel[C_ABOUT] = row;
+            if (S.top[C_ABOUT] > row) S.top[C_ABOUT] = row;
+            if (row >= S.top[C_ABOUT] + VISIBLE) S.top[C_ABOUT] = row - VISIBLE + 1;
+            frames(5);
+            shot("upd_0_row");
+            settings_input(PSP_CTRL_CROSS);
+            frames(30);
+            CHECK(s_ucalls[0] == 1 && s_upd_open, "✕ didn't start a check");
+            shot("upd_1_checking");
+            settings_input(PSP_CTRL_RTRIGGER); /* nothing gets past the dialog */
+            CHECK(S.cat == C_ABOUT, "L/R moved under the dialog");
+            s_ust = UP_LATEST; s_uknown = 1;
+            frames(5);
+            shot("upd_2_latest");
+            settings_input(PSP_CTRL_CROSS);
+            frames(30);
+            CHECK(!s_upd_open && s_ucalls[3] == 1 && S.open && S.cat == C_ABOUT, "✕ didn't close Up to date");
+            shot("upd_3_row_up_to_date");
+            settings_input(PSP_CTRL_CROSS);
+            frames(10);
+            s_ust = UP_AVAILABLE; s_uknown = 2;
+            frames(30);
+            shot("upd_4_available");
+            CHECK(s_upd_nlines > UPD_SHOWN, "the notes weren't wrapped (%d lines)", s_upd_nlines);
+            for (int i = 0; i < 30; i++) settings_input(PSP_CTRL_DOWN);
+            frames(2);
+            CHECK(s_upd_top == s_upd_nlines - UPD_SHOWN, "notes scroll: top %d of %d", s_upd_top, s_upd_nlines);
+            shot("upd_5_available_scrolled");
+            settings_input(PSP_CTRL_CROSS);
+            CHECK(s_ucalls[1] == 1 && s_ust == UP_DOWNLOADING, "✕ didn't install");
+            s_ugot = 812345;
+            frames(5);
+            shot("upd_6_downloading");
+            s_ust = UP_INSTALLING;
+            frames(2);
+            settings_input(PSP_CTRL_CIRCLE);
+            CHECK(s_upd_open, "○ closed the dialog while installing");
+            shot("upd_7_installing");
+            s_ust = UP_INSTALLED; s_uknown = 3;
+            frames(5);
+            shot("upd_8_installed");
+            settings_input(PSP_CTRL_CIRCLE);
+            frames(30);
+            CHECK(!s_upd_open && s_ust == UP_INSTALLED, "Later lost the installed state");
+            shot("upd_9_row_restart");
+            settings_input(PSP_CTRL_CROSS);
+            frames(10);
+            CHECK(s_ucalls[0] == 2 - 0 && s_upd_open, "installed: the dialog didn't open again (checks %d)", s_ucalls[0]);
+            settings_input(PSP_CTRL_CROSS);
+            CHECK(s_urestart && !S.open, "Restart now didn't ask for a restart and close Settings");
+            /* a failure */
+            settings_open();
+            frames(40);
+            s_ust = UP_FAILED;
+            s_upd_open = 1; spring_snap(&s_upd_t, FX(1));
+            frames(3);
+            shot("upd_10_failed");
+            settings_input(PSP_CTRL_CIRCLE);
+            CHECK(!s_upd_open, "○ didn't close the failure");
+        }
+    }
 
     puts(fails ? "settings_preview: FAILED" : "settings_preview: ok");
     return fails != 0;

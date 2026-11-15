@@ -157,7 +157,7 @@ int main(int argc, char **argv)
     dm = gfx_dither_matrix;
     sceGuTexMode(GU_PSM_4444, 0, 0, GU_TRUE);
     sceGuTexImage(0, ATLAS_W, ATLAS_H, ATLAS_W, NULL);
-    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number, to look at each one */
+    theme_set(argc > 2 ? atoi(argv[2]) : 0); /* a theme by number: the mockups of tools/theme_mockups.sh */
     snprintf(s_song.path, sizeof(s_song.path), "ms0:/MUSIC/Band/Album/03 Song.mp3");
     s_song.kind = KIND_MUSIC;
     if (getenv("XLT_DEMO")) return demo(getenv("XLT_DEMO"));

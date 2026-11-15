@@ -9,6 +9,9 @@
 #include <pspkernel.h>
 #include <pspdisplay.h>
 #include <psppower.h>
+#include "update.h"
+#include "btntest.h"
+#include "quitdlg.h"
 #include "gfx.h"
 #include "sfx.h"
 #include "theme.h"
@@ -24,6 +27,7 @@
 #include "ark.h"
 #include "cc.h"
 #include "gamecfg.h"
+#include "usbsync.h"
 #include "sysctl.h"
 #include "bg.h"
 #include "music.h"
@@ -87,6 +91,7 @@ static int power_callback(int unknown, int flags, void *common)
         video_on_suspend();
     }
     if (flags & PSP_POWER_CB_RESUME_COMPLETE) {
+        usbsync_on_resume();
         cc_on_resume();
         saver_on_resume();
         video_on_resume();
@@ -249,7 +254,8 @@ static int back_from_game(const char *dir)
 
 /* Stops everything that touches the Memory Stick, records the play and hands
  * the PSP to ARK. Returns only if that failed. */
-static void start(const Entry *e, const char *dir)
+/* self: e is XLT itself, restarting after an update (not a play to record). */
+static void start(const Entry *e, const char *dir, int self)
 {
     if (!launch_supported()) {
         ui_toast("ARK not detected: games can't be started here");
@@ -269,15 +275,18 @@ static void start(const Entry *e, const char *dir)
     gamecfg_load(e, &cfg); /* per-game ISO driver, default NP9660 */
     if (sysctl_usb_active())
         sysctl_usb_stop();
+    usbsync_stop(); /* the game gets a USB port with nothing on it */
     library_shutdown();
     thumbs_shutdown();
-    history_record(e->path);
+    if (!self)
+        history_record(e->path);
     power_restore(); /* the game (or ARK's per-game setting) picks its own clock */
     sfx_drain(800); /* the launch notes finish before the PSP reboots into the game */
     sfx_shutdown();
     guard_done(dir); /* a game starting is a start that worked */
     marker_write(dir, e->path);
     umd_stop(); /* the drive's watcher thread: nothing may talk to it while the PSP reboots */
+    quitdlg_release(); /* the game's HOME is the system's again */
     launch_entry(e, cfg.driver);
     marker_remove(dir); /* still here: the launch failed */
     umd_start();
@@ -287,7 +296,7 @@ static void start(const Entry *e, const char *dir)
     library_resort();
     thumbs_init(dir);
     library_rescan();
-    ui_toast("Couldn't start this game");
+    ui_toast(self ? "Couldn't restart XLT: the new version starts next time" : "Couldn't start this game");
 }
 
 int main(int argc, char *argv[])
@@ -311,6 +320,7 @@ int main(int argc, char *argv[])
     power_idle();
     bg_init();
     sysctl_init();
+    usbsync_init(dir);       /* the sync link's module and log live in XLT's folder */
     osd_init();              /* after sysctl: reads the volume once */
     psreg_init();            /* registry functions for the Settings tab */
     system_read_formats();   /* the PSP's time and date formats, on the worker */
@@ -320,6 +330,7 @@ int main(int argc, char *argv[])
     sysctl_storage_load(dir); /* the free space measured last time */
     theme_set(g_cfg.theme);   /* before anything is drawn, the boot screen too */
     history_init(dir);       /* before the library: it orders the Recent row */
+    history_import_play();   /* the play time xltshot counted in games since the last start */
     int scan = !g_safe_start && !back_from_game(dir);
     library_init(dir, lib_self, scan); /* cached index now, rescan in the background (unless back from a game) */
     thumbs_init(dir);
@@ -328,6 +339,7 @@ int main(int argc, char *argv[])
     int launcher_pending = 1; /* "Start XLT at boot" is seen to once the boot screen is gone (main loop) */
     video_init(dir);
     fm_init(dir);
+    update_init(dir);        /* clears what a stopped update left in cache/ */
     reader_init(dir);
     web_init(dir);
     ui_init();
@@ -358,6 +370,12 @@ int main(int argc, char *argv[])
         library_note(msg);
     }
 
+    if (g_cfg.usb_sync && !g_safe_start && usbsync_start() != 0) { /* Settings > XLT > USB sync */
+        char note[96];
+        snprintf(note, sizeof(note), "USB sync didn't start: %s", usbsync_error());
+        library_note(note);
+    }
+
     SysStatus st = {0};
     Input in;
     system_tick(&st);
@@ -365,11 +383,14 @@ int main(int argc, char *argv[])
 
     while (s_running) {
         input_poll(&in);
+        quitdlg_poll(&in); /* HOME, read through the kernel; the system's own dialog kept off */
         if (boot_active()) { /* the boot screen takes every press (any button skips it) */
             dirty |= boot_update(in.pressed);
             in.pressed = 0;
         }
         int saver_dirty = saver_update(&in); /* may eat the press that wakes it */
+        dirty |= btntest_update(&in);         /* the button tester takes every press */
+        dirty |= quitdlg_update(&in);         /* XLT's HOME dialog: takes every press while up */
         /* L+R+START: screenshot, L+R+SELECT: start or stop recording, from anywhere
          * in XLT. START and SELECT are swallowed so they don't also pause music or
          * open the control center; a trigger pressed while the other is held
@@ -381,6 +402,7 @@ int main(int argc, char *argv[])
             in.pressed &= ~(PSP_CTRL_START | PSP_CTRL_SELECT | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER);
         }
         dirty |= ui_update(&in, system_tick(&st));
+        dirty |= usbsync_poll(); /* the PC's files: progress, then the library */
         if (saver_covers())
             dirty = saver_dirty; /* 30 fps; nothing underneath is drawn */
         else
@@ -428,8 +450,15 @@ int main(int argc, char *argv[])
 
         Entry e;
         if (ui_take_launch(&e)) {
-            start(&e, dir);
+            start(&e, dir, 0);
             dirty = 1; /* only reached if the launch failed */
+        }
+        if (update_take_restart()) { /* Settings > About: an update was installed */
+            memset(&e, 0, sizeof(e));
+            e.kind = KIND_HOMEBREW;
+            snprintf(e.path, sizeof(e.path), "%s", self); /* as ARK's launcher: VBOOT.PBP, already updated */
+            start(&e, dir, 1);
+            dirty = 1;
         }
         if (shot && sysctl_usb_active()) { /* the PC owns the stick: writing a PNG now could corrupt it */
             ui_toast("No screenshots in USB mode");
@@ -467,6 +496,7 @@ int main(int argc, char *argv[])
     video_shutdown();
     if (sysctl_usb_active())
         sysctl_usb_stop();
+    usbsync_stop();
     guard_done(dir);
     launcher_before_exit(); /* as ARK's launcher, the XMB would only start XLT again (logs, so before the library goes) */
     library_shutdown();
@@ -474,6 +504,7 @@ int main(int argc, char *argv[])
     sfx_shutdown();
     power_restore();
     gfx_shutdown();
+    quitdlg_release(); /* the XMB's HOME is the system's again */
     sceKernelExitGame();
     return 0;
 }

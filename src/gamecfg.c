@@ -16,7 +16,7 @@
 #define FAV_MAX 64
 #define HIDDEN_MAX 256
 
-GlobalCfg g_cfg = {-1, DRIVER_DEFAULT, {1, 2, 3}, 2, 0, 1, 0, 0, {0, 0}, 1, "", 1, ""}; /* Games, Plugins, Power; screensaver after 2 min; songs by artist; games by name; next video on */
+GlobalCfg g_cfg = {-1, DRIVER_DEFAULT, {1, 2, 3}, 2, 0, 1, 0, 0, {0, 0}, 1, "", 1, "", 1, 0}; /* Games, Plugins, Power; screensaver after 2 min; songs by artist; games by name; next video on */
 
 static char s_dir[200];
 static const char *const LEVEL_KEYS[3] = {"off", "song", "album"}; /* LEVEL_* in audiofmt.h */
@@ -191,12 +191,13 @@ void globalcfg_save(void)
     int n = snprintf(text, sizeof(text),
                      "brightness_pct=%d\niso_driver=%s\nsettings_recent=%d,%d,%d\nsaver_minutes=%d\ngrid_views=%d\n"
                      "ui_sounds=%d\ntheme=%s\nmusic_sort=%s\ngames_sort=%s\nhomebrew_sort=%s\nautoplay_next=%d\naudio_lang=%s\n"
-                     "subtitle_lang=%s\nvolume_level=%s\n",
+                     "subtitle_lang=%s\nvolume_level=%s\nbattery_percent=%d\nusb_sync=%d\n",
                      g_cfg.brightness, driver_name(g_cfg.iso_driver), g_cfg.set_recent[0], g_cfg.set_recent[1],
                      g_cfg.set_recent[2], g_cfg.saver_min, g_cfg.grid, g_cfg.ui_sounds,
                      g_themes[g_cfg.theme >= 0 && g_cfg.theme < THEME_COUNT ? g_cfg.theme : 0].name,
                      msort_key(g_cfg.music_sort), gsort_key(g_cfg.game_sort[0]), gsort_key(g_cfg.game_sort[1]), g_cfg.autoplay, g_cfg.audio_lang,
-                     g_cfg.sub_lang, LEVEL_KEYS[g_cfg.level >= 0 && g_cfg.level < 3 ? g_cfg.level : 1]);
+                     g_cfg.sub_lang, LEVEL_KEYS[g_cfg.level >= 0 && g_cfg.level < 3 ? g_cfg.level : 1], g_cfg.battery_pct,
+                     g_cfg.usb_sync);
     write_file(path, text, n);
 }
 
@@ -281,6 +282,10 @@ void gamecfg_init(const char *app_dir)
             g_cfg.ui_sounds = atoi(v) != 0;
         if (ini_get(text, "autoplay_next", v, sizeof(v)))
             g_cfg.autoplay = atoi(v) != 0;
+        if (ini_get(text, "battery_percent", v, sizeof(v)))
+            g_cfg.battery_pct = atoi(v) != 0;
+        if (ini_get(text, "usb_sync", v, sizeof(v)))
+            g_cfg.usb_sync = atoi(v) != 0;
         if (ini_get(text, "audio_lang", v, sizeof(v)) && strlen(v) == 3)
             snprintf(g_cfg.audio_lang, sizeof(g_cfg.audio_lang), "%s", v);
         if (ini_get(text, "volume_level", v, sizeof(v)))

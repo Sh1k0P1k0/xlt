@@ -56,6 +56,10 @@ int plugtext_resolve(const char *path, const char *ark_dir, char *out, int n);
  * `name` (compared without case, path ignored). */
 int plugtext_mentions(const char *text, const char *name);
 
+/* 1 if a line in text loads `name` for PS1 games (runlevel pops, ps1, psx, always or
+ * all), on or off: either way the user's choice is already there. */
+int plugtext_loads_for_pops(const char *text, const char *name);
+
 /* text with `line` added at the end, in the file's own line endings. Returns the
  * new length or -1. */
 int plugtext_append(const char *text, const char *line, char *out, int cap);

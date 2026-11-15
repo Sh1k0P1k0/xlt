@@ -53,6 +53,7 @@ typedef struct Job {
     /* J_PARSE: the Content-Disposition header; J_DOWNLOAD: where to save */
     char disposition[256];
     char path[256];
+    int quiet;          /* J_DOWNLOAD for wf_fetch_file: answered through wf_fetch_done */
 } Job;
 
 typedef struct {
@@ -671,6 +672,21 @@ dropped:
 
 static volatile int s_dl_active, s_dl_stop, s_dl_kbps;
 static volatile int64_t s_dl_got, s_dl_total;
+static volatile int s_fetch_done;   /* wf_fetch_file's answer is ready */
+static int s_fetch_ok;
+static char s_fetch_msg[160];
+
+static void dl_answer(const Job *j, const WebResult *res)
+{
+    if (!j->quiet) {
+        post_result(res);
+        return;
+    }
+    s_fetch_ok = res->ok;
+    snprintf(s_fetch_msg, sizeof(s_fetch_msg), "%s", res->msg);
+    __sync_synchronize();
+    s_fetch_done = 1;
+}
 
 typedef struct {
     SceUID fd;
@@ -720,7 +736,7 @@ static void do_download(Job *j)
     name = name ? name + 1 : j->path;
     if (ensure_net(err, sizeof(err)) < 0 || !curl_ready()) {
         snprintf(res.msg, sizeof(res.msg), "%s", err[0] ? err : "The network couldn't start");
-        post_result(&res);
+        dl_answer(j, &res);
         return;
     }
     static DlFile f;
@@ -729,7 +745,7 @@ static void do_download(Job *j)
     f.fd = sceIoOpen(j->path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (f.fd < 0) {
         snprintf(res.msg, sizeof(res.msg), "Couldn't create %s", name);
-        post_result(&res);
+        dl_answer(j, &res);
         return;
     }
     Xfer x = {j, NULL, 0, 0, 0, 0, 0, ""};
@@ -759,7 +775,7 @@ static void do_download(Job *j)
         snprintf(res.msg, sizeof(res.msg), "%s", j->path);
     }
     wlog("download %s -> %s: %s, %lld bytes in %d ms", j->url, j->path, ok ? "saved" : res.msg, (long long)s_dl_got, ms);
-    post_result(&res);
+    dl_answer(j, &res);
 }
 
 static int net_thread(SceSize args, void *argp)
@@ -1212,6 +1228,33 @@ void wf_download(const char *url, const char *referer, const char *path)
     s_dl_got = s_dl_total = 0;
     s_dl_active = 1;
     q_put(&s_net, j);
+}
+
+int wf_fetch_file(const char *url, const char *path)
+{
+    start();
+    if (s_dl_active) return -1;
+    Job *j = job_new(J_DOWNLOAD, 0);
+    if (!j) return -1;
+    snprintf(j->url, sizeof(j->url), "%s", url);
+    snprintf(j->path, sizeof(j->path), "%s", path);
+    j->quiet = 1;
+    s_fetch_done = 0;
+    s_dl_stop = 0;
+    s_dl_got = s_dl_total = 0;
+    s_dl_active = 1;
+    q_put(&s_net, j);
+    return 0;
+}
+
+int wf_fetch_done(int *ok, char *msg, int n)
+{
+    if (!s_fetch_done) return 0;
+    __sync_synchronize();
+    s_fetch_done = 0;
+    *ok = s_fetch_ok;
+    snprintf(msg, n, "%s", s_fetch_msg);
+    return 1;
 }
 
 void wf_download_stop(void) { if (s_dl_active) s_dl_stop = 1; }

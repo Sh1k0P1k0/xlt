@@ -156,7 +156,86 @@ static void job_install(void *arg)
     }
 }
 
-void shotplug_install(void) { bg_post(job_install, NULL, 0); }
+/* PS1 games: xltshot counts their play time too, so it gets a "pops" line, once. A
+ * marker in XLT's cache says it was added: turned off or removed by the user later,
+ * it stays that way. A list already loading it for PS1 games (pops, ps1, psx,
+ * always, all) is left alone. */
+static void add_pops_line(const char *dev, const char *prx)
+{
+    char marker[240], note[200];
+    snprintf(marker, sizeof(marker), "%.200s/xltshot_pops", library_cache_dir());
+    SceUID m = sceIoOpen(marker, PSP_O_RDONLY, 0);
+    if (m >= 0) {
+        sceIoClose(m);
+        return;
+    }
+    char paths[3][160];
+    int n = plugins_file_paths(paths);
+    for (int i = 0; i < n; i++) {
+        int missing;
+        char *t = plugins_read_file(paths[i], &missing);
+        if (!t && !missing) { /* a list that can't be read might hold it: leave them all alone */
+            snprintf(note, sizeof(note), "screenshot plugin: can't read %.140s, no PS1 line added", paths[i]);
+            library_note(note);
+            return;
+        }
+        if (t && plugtext_loads_for_pops(t, NAME)) {
+            free(t);
+            goto mark;
+        }
+        free(t);
+    }
+    {
+        char list[64], line[96];
+        snprintf(list, sizeof(list), "%s/SEPLUGINS/PLUGINS.TXT", dev);
+        snprintf(line, sizeof(line), "pops, %s, on", prx);
+        int missing;
+        char *t = plugins_read_file(list, &missing);
+        if (!t && !missing)
+            return;
+        const char *old = t ? t : "";
+        int cap = (int)strlen(old) + (int)strlen(line) + 8;
+        char *o = malloc(cap);
+        int len = o ? plugtext_append(old, line, o, cap) : -1;
+        int ok = len >= 0 && plugins_write_text(list, o, len) == 0;
+        free(o);
+        free(t);
+        snprintf(note, sizeof(note), "screenshot plugin: %s for PS1 games (play time) in %s", ok ? "added" : "COULDN'T add", list);
+        library_note(note);
+        if (!ok)
+            return;
+    }
+mark:
+    m = sceIoOpen(marker, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (m >= 0) {
+        sceIoWrite(m, "1\n", 2);
+        sceIoClose(m);
+    }
+}
+
+static void job_pops(void *arg)
+{
+    (void)arg;
+    if (!ark_version())
+        return;
+    const char *dev = "ms0:";
+    SceUID d = sceIoDopen("ms0:/");
+    if (d >= 0) sceIoDclose(d);
+    else dev = "ef0:";
+    char prx[64];
+    snprintf(prx, sizeof(prx), "%s/SEPLUGINS/" NAME, dev);
+    SceUID f = sceIoOpen(prx, PSP_O_RDONLY, 0);
+    if (f < 0)
+        return; /* not installed (yet): next start */
+    sceIoClose(f);
+    add_pops_line(dev, prx);
+}
+
+void shotplug_install(void)
+{
+    bg_post(job_install, NULL, 0);
+    bg_post(job_pops, NULL, 0); /* after it, on the same worker */
+}
 
 int shotplug_take_message(char *out, int n)
 {

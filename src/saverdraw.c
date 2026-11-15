@@ -13,6 +13,7 @@
 #include "saverdraw.h"
 #include "ui_internal.h"
 #include "saver_data.h"
+#include "gamecfg.h"
 
 #define MARGIN 12
 #define DATE_Y 64          /* top of the date line */
@@ -151,11 +152,15 @@ void saverdraw(const SaverView *v)
 
     /* Battery, where the status bar keeps it. */
     if (v->st.battery >= 0) {
-        char pct[12];
-        snprintf(pct, sizeof(pct), "%d%%", v->st.battery);
-        int x = SCREEN_W - MARGIN - gfx_text_width(FONT_SMALL, pct);
-        gfx_text(FONT_SMALL, x, 5, pct, v->st.charging ? C_CHARGE : C_MUTED);
-        ui_draw_battery(x - 8 - 22, 9, &v->st);
+        int x = SCREEN_W - MARGIN;
+        if (g_cfg.battery_pct) {
+            char pct[12];
+            snprintf(pct, sizeof(pct), "%d%%", v->st.battery);
+            x -= gfx_text_width(FONT_SMALL, pct);
+            gfx_text(FONT_SMALL, x, 5, pct, ui_battery_color(&v->st));
+            x -= 5;
+        }
+        ui_draw_battery(x - 22, 9, &v->st);
     }
 
     if (v->hint > 0) {

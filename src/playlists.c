@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "fsname.h"
 #include "playlists.h"
 #include "m3u.h"
 #include "musicsort.h"
@@ -529,6 +530,7 @@ int pl_add_many(int i, const Entry *list, int n, int *added)
 }
 
 /* A clean name for a file: no surrounding spaces, not empty. */
+/* A typed name (UTF-8) as the playlist's file name: trimmed, in Shift-JIS (fsname.h) */
 static int clean_name(const char *in, char *out, int cap)
 {
     while (*in == ' ') in++;
@@ -536,9 +538,10 @@ static int clean_name(const char *in, char *out, int cap)
     while (n > 0 && (in[n - 1] == ' ' || in[n - 1] == '.')) n--;
     if (n <= 0)
         return PL_ERR_NAME;
-    if (n >= cap) n = cap - 1;
-    snprintf(out, cap, "%.*s", n, in);
-    return PL_OK;
+    char typed[PL_NAME * 2];
+    snprintf(typed, sizeof(typed), "%.*s", n, in);
+    fsname_from_utf8(typed, out, cap, NULL); /* too long: what fits */
+    return out[0] ? PL_OK : PL_ERR_NAME;
 }
 
 static int file_exists(const char *path)

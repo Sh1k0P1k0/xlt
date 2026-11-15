@@ -8,6 +8,9 @@
 #include <pspkernel.h> /* sceKernelGetSystemTimeLow: Shuffle picks a first song */
 #include <stdio.h>
 #include <string.h>
+#include "usbsync.h"
+#include "btntest.h"
+#include "quitdlg.h"
 #include "ui.h"
 #include "ui_internal.h"
 #include "sysctl.h"
@@ -1087,9 +1090,14 @@ void format_size(char *b, int n, uint64_t bytes)
 
 /* ------------------------------------------------------------------- draw */
 
+u32 ui_battery_color(const SysStatus *st)
+{
+    return st->charging ? C_CHARGE : st->battery < 15 ? C_LOW : C_MUTED;
+}
+
 void ui_draw_battery(int x, int y, const SysStatus *st)
 {
-    u32 c = st->charging ? C_CHARGE : st->battery < 15 ? C_LOW : C_MUTED;
+    u32 c = ui_battery_color(st);
     const int w = 20, h = 10;
     gfx_rect(x, y, w, 1, c);
     gfx_rect(x, y + h - 1, w, 1, c);
@@ -1115,6 +1123,9 @@ static void draw_status_bar(const char *title, int search, const SysStatus *st, 
         tx = gfx_text(FONT_SMALL, tx + 8, 5, "Scanning...", C_FOCUS);
     if (g_safe_start)
         tx = gfx_text(FONT_SMALL, tx + 8, 5, "Safe start", C_FOCUS);
+    char sync[24];
+    if (usbsync_progress(sync, sizeof(sync)))
+        tx = gfx_text(FONT_SMALL, tx + 8, 5, sync, C_FOCUS);
     MusicNow now;
     if (music_state() != MUSIC_STOPPED && music_now(&now) == 0 && !np_is_open()) { /* Now Playing says it already */
         int paused = music_state() == MUSIC_PAUSED;
@@ -1130,6 +1141,13 @@ static void draw_status_bar(const char *title, int search, const SysStatus *st, 
     gfx_text(FONT_SMALL, x, 5, buf, C_TEXT);
     x -= 8;
     if (st->battery >= 0) {
+        x -= 2; /* a little more room from the clock */
+        if (g_cfg.battery_pct) { /* "87%" right of the icon, in the icon's colour */
+            snprintf(buf, sizeof(buf), "%d%%", st->battery);
+            x -= gfx_text_width(FONT_SMALL, buf);
+            gfx_text(FONT_SMALL, x, 5, buf, ui_battery_color(st));
+            x -= 5;
+        }
         x -= 22;
         ui_draw_battery(x, 9, st);
         x -= 8;
@@ -1137,6 +1155,11 @@ static void draw_status_bar(const char *title, int search, const SysStatus *st, 
     if (st->wifi_on) {
         x -= 14;
         gfx_icon(ICON_WIFI, x, 6, 14, 14, C_MUTED);
+        x -= 8;
+    }
+    if (usbsync_attached()) { /* USB sync: the PC is there (lit while a program is connected) */
+        x -= 14;
+        gfx_icon(ICON_USB, x, 6, 14, 14, usbsync_talking() ? C_FOCUS : C_MUTED);
         x -= 8;
     }
     if (search) {
@@ -2006,8 +2029,16 @@ void ui_draw(const SysStatus *st)
         osd_draw();
         return;
     }
+    if (btntest_covers()) { /* the button tester: only it, the toasts and the volume OSD */
+        btntest_draw(st);
+        draw_toast();
+        saver_draw(st);
+        osd_draw();
+        return;
+    }
     if (cc_usb_covers()) { /* USB mode: only its screen (and the volume OSD) */
         cc_usb_draw(st);
+        quitdlg_draw();
         draw_toast();
         saver_draw(st);
         osd_draw();
@@ -2040,6 +2071,8 @@ overlays:
     osk_draw();
     cc_draw(st);
     cc_usb_draw(st); /* fading in or out */
+    btntest_draw(st); /* fading in or out */
+    quitdlg_draw();   /* HOME */
     draw_toast();
     boot_draw(); /* fading into the launcher */
     saver_draw(st);

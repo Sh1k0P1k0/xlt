@@ -29,6 +29,13 @@ char *plugins_read_file(const char *path, int *missing)
     SceUID fd = sceIoOpen(path, PSP_O_RDONLY, 0);
     if (fd < 0) {
         *missing = (unsigned)fd == ERR_NOT_FOUND;
+        if (!*missing && path[0] && path[1] && path[2] && path[3] == ':') {
+            /* no such device at all (ef0: on a PSP without internal storage): not there either */
+            char dev[6] = {path[0], path[1], path[2], ':', '/', 0};
+            SceUID d = sceIoDopen(dev);
+            if (d >= 0) sceIoDclose(d);
+            else *missing = 1;
+        }
         return NULL;
     }
     int size = sceIoLseek32(fd, 0, PSP_SEEK_END);

@@ -21,6 +21,7 @@ int library_scanning(void);
 enum { LIB_PHASE_GAMES, LIB_PHASE_PICTURES, LIB_PHASE_MUSIC, LIB_PHASE_VIDEO, LIB_PHASES };
 int library_progress(int *done, int *total);
 void library_note(const char *msg); /* a line in cache/scan.log */
+const char *library_cache_dir(void); /* <XLT folder>/cache */
 const char *library_self(void); /* XLT's own EBOOT path */
 
 int library_count(int view);

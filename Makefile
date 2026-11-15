@@ -1,6 +1,6 @@
 # XLT - PSP launcher (PSPSDK / pspdev)
 TARGET = xlt
-OBJS = src/main.o src/fatcount.o src/gfx.o src/ui.o src/input.o src/system.o src/library.o \
+OBJS = src/main.o src/fatcount.o src/gamesfile.o src/gfx.o src/ui.o src/input.o src/system.o src/library.o \
        src/disc.o src/probe.o src/thumbconv.o src/thumbs.o src/launch.o src/history.o \
        src/ark.o src/arktext.o src/sysctl.o src/gamecfg.o src/opts.o src/cc.o \
        src/match.o src/search.o src/plugtext.o src/plugins.o src/bg.o \
@@ -11,10 +11,10 @@ OBJS = src/main.o src/fatcount.o src/gfx.o src/ui.o src/input.o src/system.o src
        src/saver.o src/saverdraw.o src/boot.o src/bootdraw.o src/umd.o src/sfx.o src/theme.o \
        src/url.o src/html.o src/weblay.o src/net.o src/webfetch.o src/web.o src/clockfix.o \
        src/m3u.o src/musicsort.o src/playlists.o src/resume.o src/nowplaying.o src/ui_menus.o src/vplace.o src/srt.o \
-       src/sfokey.o src/savedata.o src/pathmap.o src/lrc.o src/safestart.o src/zip.o src/flac.o src/audiofmt.o src/avi.o src/recjpeg.o src/recorder.o \
-       src/shotplug.o src/arklauncher.o
+       src/sfokey.o src/savedata.o src/pathmap.o src/lrc.o src/safestart.o src/zip.o src/btntest.o src/quitdlg.o src/updparse.o src/update.o src/flac.o src/audiofmt.o src/avi.o src/recjpeg.o src/recorder.o \
+       src/shotplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o
 
-INCDIR = src build
+INCDIR = src build plugin/xltsync
 # -MMD -MP: the compiler lists every header each .o includes (src/*.d), so a changed
 # header rebuilds everything that uses it. The hand-written lists below missed
 # music.o for mp4.h once: music.c kept the old, smaller Mp4 inside its Aac and
@@ -59,7 +59,7 @@ EBOOT.PBP: art/ICON0.PNG art/PIC1.PNG art/ICON1.PMF
 
 # The in-game screenshot plugin: a kernel PRX built on its own, carried inside XLT,
 # which installs it at start-up (src/shotplug.c).
-XLTSHOT_SRC = plugin/xltshot/main.c plugin/xltshot/pngout.c plugin/xltshot/pngout.h plugin/xltshot/Makefile
+XLTSHOT_SRC = plugin/xltshot/main.c plugin/xltshot/pngout.c plugin/xltshot/pngout.h plugin/xltshot/Makefile plugin/xltshot/xltplay.h
 plugin/xltshot/xltshot.prx: $(XLTSHOT_SRC)
 	$(MAKE) -C plugin/xltshot
 build/xltshot_data.h: plugin/xltshot/xltshot.prx tools/bake_bin.py
@@ -67,6 +67,26 @@ build/xltshot_data.h: plugin/xltshot/xltshot.prx tools/bake_bin.py
 	python3 -I tools/bake_bin.py $< xltshot_prx $@
 src/shotplug.o: build/xltshot_data.h
 EXTRA_CLEAN += build/xltshot_data.h plugin/xltshot/xltshot.prx plugin/xltshot/xltshot.elf plugin/xltshot/*.o
+
+# The USB sync link: a kernel PRX carried inside XLT, which writes it to its own folder
+# and loads it while sync is on (src/usbsync.c).
+XLTSYNC_SRC = plugin/xltsync/main.c plugin/xltsync/xltsync.h plugin/xltsync/syncpath.c plugin/xltsync/syncpath.h \
+              src/fatcount.c src/fatcount.h plugin/xltsync/exports.exp plugin/xltsync/Makefile
+plugin/xltsync/xltsync.prx: $(XLTSYNC_SRC)
+	$(MAKE) -C plugin/xltsync
+build/xltsync_data.h: plugin/xltsync/xltsync.prx tools/bake_bin.py
+	@mkdir -p build
+	python3 -I tools/bake_bin.py $< xltsync_prx $@
+src/usbsync.o: build/xltsync_data.h
+EXTRA_CLEAN += build/xltsync_data.h plugin/xltsync/xltsync.prx plugin/xltsync/xltsync.elf plugin/xltsync/*.o
+
+# Shift-JIS, the PSP's encoding for file names: tables for src/fsname.c, with the
+# replacements XLT Tool uses (tools/xltlink.py), so both name files alike.
+build/sjis_data.h: tools/bake_sjis.py tools/xltlink.py
+	@mkdir -p build
+	python3 -I tools/bake_sjis.py $@
+src/fsname.o: build/sjis_data.h
+EXTRA_CLEAN += build/sjis_data.h
 
 # The same shapes as a texture for the boot screen.
 build/logo_data.h: tools/make_logo.py
@@ -144,6 +164,8 @@ src/library.o src/gamecfg.o src/opts.o src/ui.o src/settings.o: src/gamecfg.h
 src/opts.o src/ui.o: src/ui_internal.h
 src/ui.o src/ui_menus.o: src/ui_state.h src/ui_internal.h src/playlists.h src/musicsort.h src/menu.h src/osk.h src/groups.h build/atlas_data.h build/sfx_ids.h
 src/launch.o: src/launch.h src/disc.h src/entry.h
+src/update.o src/updparse.o src/settings.o src/main.o: src/update.h src/updparse.h
+src/update.o src/webfetch.o src/web.o: src/webfetch.h
 src/ui.o: src/anim.h src/ui.h src/library.h src/thumbs.h src/entry.h
 src/library.o src/probe.o src/thumbs.o: src/entry.h
 src/disc.o src/probe.o src/thumbconv.o: src/disc.h src/xio.h

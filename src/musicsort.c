@@ -96,8 +96,8 @@ int msort_cmp(const Entry *a, const Entry *b, int mode)
 
 /* ------------------------------------------------- Games and Homebrew */
 
-static const char *const g_label[GSORT_COUNT] = {"Name", "Last played", "Size", "Newest"};
-static const char *const g_key[GSORT_COUNT] = {"name", "played", "size", "newest"};
+static const char *const g_label[GSORT_COUNT] = {"Name", "Last played", "Size", "Newest", "Most played"};
+static const char *const g_key[GSORT_COUNT] = {"name", "played", "size", "newest", "time"};
 
 const char *gsort_label(int m) { return g_label[m >= 0 && m < GSORT_COUNT ? m : 0]; }
 const char *gsort_key(int m) { return g_key[m >= 0 && m < GSORT_COUNT ? m : 0]; }
@@ -114,6 +114,7 @@ int gsort_cmp(const Entry *a, const Entry *b, int mode, uint64_t played_a, uint6
 {
     switch (mode) {
     case GSORT_PLAYED: /* most recent first */
+    case GSORT_TIME:   /* longest played first (the caller passes seconds played) */
         if (played_a != played_b) return played_a > played_b ? -1 : 1;
         break;
     case GSORT_SIZE: /* biggest first */

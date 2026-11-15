@@ -88,10 +88,20 @@ file in `cache/reader.txt` (64 files), and the reader goes back there next time.
 
 ### Non-ASCII text
 
-The main atlas has ASCII only, so a second atlas (512×256, 4444, in main RAM) holds Latin-1, Greek and the
-common punctuation (quotes, dashes, €, …) in all three fonts. A string that uses any of them binds it once after
-its ASCII glyphs; plain ASCII strings cost nothing extra. This also fixes Greek and accented file names, song tags
-and titles everywhere in XLT.
+The main atlas has ASCII only, so a second atlas (512×512, 4 bits a texel through a 16-step alpha palette, 128 KB
+in main RAM) holds Latin-1, Greek, Cyrillic, the common punctuation (quotes, dashes, €, …), Japanese kana
+(hiragana, katakana, half-width katakana, from Noto Sans CJK JP), Japanese punctuation and symbols (♪ ★ → ※ …)
+in all three fonts; full-width ASCII is drawn with the ASCII glyphs. A string that uses any of them binds it once
+after its ASCII glyphs; plain ASCII strings cost nothing extra.
+
+**Kanji** come from the PSP's own Japanese font, `flash0:/font/jpn0.pgf` (`src/pgf.c`): opened the first time a
+kanji is drawn, each glyph read from it once, shrunk to the font's size on the CPU and kept in a 256×256 4-bit
+cache texture (144 cells; a cell drawn in the current frame is never reused). About 65 KB once in use: the cache
+and the font's pointer and metric tables; its character map is read from the file an entry at a time.
+
+**File names** are in Shift-JIS on the PSP (its FAT driver's encoding), everything else in UTF-8: `gfx.c` reads a
+run of non-ASCII bytes that isn't valid UTF-8 as Shift-JIS, so names show right wherever they are drawn, and the
+names XLT makes (renames, new folders, playlists, ZIP extraction, downloads) are converted by `src/fsname.c`.
 
 ## Web
 

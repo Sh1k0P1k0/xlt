@@ -11,6 +11,14 @@
 #include "../src/library.h"
 #include "../src/gamecfg.h"
 #include "../src/sysctl.h"
+#include "../src/usbsync.h"
+int usbsync_active(void) { return 0; }
+int usbsync_start(void) { return -1; }
+void usbsync_stop(void) {}
+const char *usbsync_error(void) { return ""; }
+int usbsync_attached(void) { return 0; }
+int usbsync_talking(void) { return 0; }
+int usbsync_progress(char *o, int n) { (void)o; (void)n; return 0; }
 #include "../src/bg.h"
 #include "../src/sfx.h"
 #include "../src/web.h"

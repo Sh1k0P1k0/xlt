@@ -12,6 +12,7 @@
 #include <psprtc.h>
 #include <pspusb.h>
 #include <pspusbstor.h>
+#include "usbsync.h"
 #include <kubridge.h>
 #include <systemctrl.h>
 #include <stdio.h>
@@ -42,6 +43,9 @@ int scePowerRequestStandby(void);
 static void *s_light_set, *s_light_get, *s_no_charge;
 static void *s_imp_get, *s_imp_set, *s_ctrl_peek;
 #define NID_CTRL_PEEK 0x3A622550 /* sceCtrlPeekBufferPositive (psp5 reads HOME and NOTE with it) */
+#define NID_HOME_POPUP 0x5595A71A /* sceImposeSetHomePopup (psp5) */
+#define NID_HOME_POPUP_660 0xC08C41EF /* the same on 6.60+ (ARK-5's nid_660_data.c) */
+static void *s_home_popup;
 static int s_usb_on, s_usb_loaded, s_is_go;
 
 static int kcall(void *f, u32 a1, u32 a2)
@@ -65,6 +69,9 @@ void sysctl_init(void)
     if (!s_imp_get)
         s_imp_get = (void *)sctrlHENFindFunction("sceImpose_Driver", "sceImpose_driver", NID_IMPOSE_GET_660);
     s_ctrl_peek = (void *)sctrlHENFindFunction("sceController_Service", "sceCtrl_driver", NID_CTRL_PEEK);
+    s_home_popup = (void *)sctrlHENFindFunction("sceImpose_Driver", "sceImpose_driver", NID_HOME_POPUP);
+    if (!s_home_popup)
+        s_home_popup = (void *)sctrlHENFindFunction("sceImpose_Driver", "sceImpose_driver", NID_HOME_POPUP_660);
     s_imp_set = (void *)sctrlHENFindFunction("sceImpose_Driver", "sceImpose_driver", NID_IMPOSE_SET);
     if (!s_imp_set)
         s_imp_set = (void *)sctrlHENFindFunction("sceImpose_Driver", "sceImpose_driver", NID_IMPOSE_SET_660);
@@ -98,6 +105,42 @@ unsigned sysctl_kernel_buttons(void)
     SceCtrlData pad;
     memset(&pad, 0, sizeof(pad));
     return kcall(s_ctrl_peek, (u32)&pad, 1) < 0 ? 0 : pad.Buttons;
+}
+
+static volatile int s_popup_off;
+static volatile u32 s_home_beat; /* sceKernelGetSystemTimeLow() at the last sysctl_home_alive() */
+static SceUID s_home_dog = -1;
+
+static int home_watchdog(SceSize args, void *argp)
+{
+    (void)args; (void)argp;
+    for (;;) {
+        sceKernelDelayThread(500000);
+        if (s_popup_off && sceKernelGetSystemTimeLow() - s_home_beat > 3000000)
+            sysctl_home_popup(1);
+    }
+    return 0;
+}
+
+void sysctl_home_alive(void) { s_home_beat = sceKernelGetSystemTimeLow(); }
+int sysctl_home_popup_off(void) { return s_popup_off; }
+
+int sysctl_home_popup(int on)
+{
+    if (!s_home_popup)
+        return -1;
+    if ((!on) == s_popup_off)
+        return 0;
+    if (!on && s_home_dog < 0) {
+        s_home_dog = sceKernelCreateThread("xl_homedog", home_watchdog, 0x10, 0x1000, PSP_THREAD_ATTR_USER, NULL);
+        if (s_home_dog >= 0) sceKernelStartThread(s_home_dog, 0, NULL);
+        else return -2; /* no watchdog: leave the dialog on */
+    }
+    sysctl_home_alive();
+    int r = kcall(s_home_popup, on ? 1 : 0, 0);
+    if (r >= 0)
+        s_popup_off = !on;
+    return r;
 }
 
 #define IMPOSE_AVLS 0x10 /* PSP_IMPOSE_AVLS */
@@ -206,20 +249,16 @@ int sysctl_usb_connected(void)
     return s_usb_on && (sceUsbGetState() & PSP_USB_CONNECTION_ESTABLISHED);
 }
 
-int sysctl_usb_start(void)
+/* The system's USB modules (the bus driver and mass storage), once per run. */
+int sysctl_usb_load(void)
 {
     static const char *mods[] = {
         "flash0:/kd/usb.prx",        "flash0:/kd/semawm.prx",    "flash0:/kd/usbstor.prx",
         "flash0:/kd/usbstormgr.prx", "flash0:/kd/usbstorms.prx", "flash0:/kd/usbstoreflash.prx",
         "flash0:/kd/usbstorboot.prx",
     };
-    if (s_usb_on)
-        return 0;
     if (!sysctl_usb_available())
         return -1;
-    /* ARK's USB charging can block the connection on a PSP Go: turn it off first. */
-    if (s_no_charge)
-        kcall(s_no_charge, 0, 0);
     if (!s_usb_loaded) {
         for (unsigned i = 0; i < sizeof(mods) / sizeof(mods[0]); i++) {
             if (!s_is_go && strstr(mods[i], "usbstoreflash"))
@@ -230,6 +269,24 @@ int sysctl_usb_start(void)
         }
         s_usb_loaded = 1;
     }
+    return 0;
+}
+
+/* ARK's USB charging can block the connection on a PSP Go: turned off first. */
+void sysctl_usb_prepare(void)
+{
+    if (s_no_charge)
+        kcall(s_no_charge, 0, 0);
+}
+
+int sysctl_usb_start(void)
+{
+    if (s_usb_on)
+        return 0;
+    if (!sysctl_usb_available() || usbsync_active()) /* the sync link has the port */
+        return -1;
+    sysctl_usb_prepare();
+    sysctl_usb_load();
     if (sceUsbGetState() & PSP_USB_ACTIVATED) {
         sceUsbDeactivate(USB_PID);
         sceKernelDelayThread(10000);
@@ -277,7 +334,11 @@ int sysctl_kcall_nid(const char *const *modules, const char *library, unsigned n
 
 void sysctl_sleep(void) { scePowerRequestSuspend(); }
 void sysctl_shutdown(void) { scePowerRequestStandby(); }
-void sysctl_restart(void) { scePowerRequestColdReset(0); }
+void sysctl_restart(void)
+{
+    sysctl_home_popup(1); /* the system's HOME dialog back, before the PSP restarts */
+    scePowerRequestColdReset(0);
+}
 
 /* ---------------------------------------------------------------- storage */
 

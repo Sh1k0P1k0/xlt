@@ -15,7 +15,8 @@ Copy `EBOOT.PBP` to `ms0:/PSP/GAME/XLT/`.
 `tools/make_demo_reel.sh` renders the README's featurette (`docs/media/xlt_demo.mp4`; the README plays a copy
 uploaded to GitHub, so a new render has to be uploaded again and its link put in the README), its GIF teaser and the
 screenshots on the PC, after `make test`. Each screen preview has a demo mode (`XLT_DEMO=DIR`) that walks through
-the real UI code and saves every other frame; the library is made up and the artwork is drawn by
+the real UI code and saves every other frame (the HOME dialog, the button test and the update check are held
+stills from their previews); the library is made up and the artwork is drawn by
 `tests/make_demo_art.py`, so nothing in them belongs to anyone else. `tools/make_xmb_media.sh` makes the XMB
 background and preview the same way (see [Look and sound](Look-and-Sound.md#logo-and-the-xmb-entry)).
 
@@ -77,7 +78,19 @@ background and preview the same way (see [Look and sound](Look-and-Sound.md#logo
   chunks; non-FAT sectors are refused.
 - Settings → About and its free-space dialog (`tests/settings_preview.c`, the real `settings.c`): no count on
   only highlighting About, one on going in, stopped by leaving About or by ○ (which goes back to the sections),
-  no second count, and the driver fallback drawn before it runs. Frames in `build/settings_frames/`.
+  no second count, and the driver fallback drawn before it runs; then each state of the Check for updates
+  dialog (checking, up to date, available with scrolling notes, downloading, installing, installed, failed).
+  Frames in `build/settings_frames/`.
+- XLT's HOME dialog (`tests/quitdlg_preview.c`, the real `quitdlg.c`): HOME opens it on Yes, ←/→ switch, No, ○
+  and HOME close it, Yes quits, HOME held opens it once, nothing gets past it, the button test keeps it shut,
+  and with the system's dialog still on it never opens. Frames in `build/quitdlg_frames/`.
+- The button tester (`tests/btntest_preview.c`, the real `btntest.c`) with a made-up pad: the ✕ that opened it
+  counted only after it is let go, held buttons and switches, the stick round its edge, all 17 seen, nothing
+  let through, ○ tapped staying and ○ held 1.5 s leaving. Frames in `build/btntest_frames/`.
+- The update check's parsing (`tests/test_updparse.c`): a GitHub release answer with nested objects, nulls,
+  `\u` escapes and surrogate pairs; every truncation of it refused; the XLT zip and its digest picked;
+  version order (`1.10.0` > `1.9.9`, `1.1.0-beta` < `1.1.0`); Markdown notes to plain text, cut on a UTF-8
+  boundary; which name in the zip is XLT's EBOOT.
 - The screensaver, drawn by the real `gfx.c` and `saverdraw.c` through a small software GE (`tests/saver_preview.c`,
   SDK stand-ins in `tests/host/`) that blends, dithers and truncates every written pixel as the GE does
   (`build/saver_preview DIR old` renders with the old dithering, to compare): checked for memory errors, and the frames (24/12-hour, music, a long title, low

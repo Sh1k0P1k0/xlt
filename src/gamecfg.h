@@ -46,6 +46,8 @@ typedef struct {
     char audio_lang[4]; /* the audio language last picked in a video (ISO 639-2), "" = the file's default */
     int level;          /* music volume levelling: LEVEL_* (audiofmt.h), 1 = by song */
     char sub_lang[4];   /* the subtitle language last picked (ISO 639-2), "off", or "" = the file's default */
+    int battery_pct;    /* the status bar shows the battery level as a number (1) or the icon only (0) */
+    int usb_sync;       /* USB sync on: the PC can send files whenever the cable is in (usbsync.c) */
 } GlobalCfg;
 
 #define GRID_FILES (1 << 7)

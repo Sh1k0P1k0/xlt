@@ -69,6 +69,11 @@ void wf_free_page(WebPage *p);
  * One at a time; pages wait behind it. The answer is a WR_DOWNLOAD. */
 void wf_download(const char *url, const char *referer, const char *path);
 void wf_download_stop(void);
+/* The same for XLT's own use (the update check): the answer is not a WebResult the
+ * browser would see but comes from wf_fetch_done. -1 if a download is already running. */
+int wf_fetch_file(const char *url, const char *path);
+/* 1 once, when it has finished: *ok, and msg = the path saved or why not. */
+int wf_fetch_done(int *ok, char *msg, int n);
 /* 1 while one runs; its bytes so far, the total (0 if unknown), KB/s. */
 int wf_download_progress(int64_t *got, int64_t *total, int *kbps);
 
