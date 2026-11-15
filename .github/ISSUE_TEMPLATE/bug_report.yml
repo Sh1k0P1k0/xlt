@@ -1,0 +1,111 @@
+name: Bug report
+description: Something in XLT doesn't work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! XLT has been tested only on **ARK-5**, on a **PSP-3004** and a **PSP Street (E1004)**, so reports from other models and ARK versions are especially useful.
+        Please check the [open issues](https://github.com/boubounokefalos/xlt/issues) first, in case it's already known.
+  - type: input
+    id: version
+    attributes:
+      label: XLT version
+      description: Settings → About shows it ("Launcher: XLT 1.1.0").
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: PSP model
+      options:
+        - PSP-1000
+        - PSP-2000
+        - PSP-3000
+        - PSP Go (N1000)
+        - PSP Street (E1000)
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: ark
+    attributes:
+      label: ARK version
+      description: Settings → About shows it.
+      options:
+        - ARK-5
+        - ARK-4
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: System software
+      description: Settings → About, or the XMB's System Information.
+      placeholder: "6.61"
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options:
+        - Starting XLT / the library check
+        - Games, homebrew or PS1 games (launching, options)
+        - Music
+        - Video
+        - Pictures
+        - Files, ZIP, save data or the reader
+        - Web or Check for updates
+        - Settings, plugins or Start XLT at boot
+        - Control center, screenshots or play time
+        - USB mode or USB sync
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: "The music stops when I open Pictures. I expected it to keep playing."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      description: As exactly as you can, from starting XLT. Does it happen every time?
+      placeholder: |
+        1. Play a song from Music
+        2. Press L to go to Pictures
+        3. Open any picture
+        Happens every time.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: The file involved (if any)
+      description: For a game, song, video or picture that misbehaves, what kind it is (e.g. CSO, FLAC 24-bit, MP4 720p with subtitles) and where it came from. Please don't attach copyrighted games or music.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        XLT writes logs on the Memory Stick that usually show what went wrong. Attach the ones that fit (drag the files here), copied right after the problem:
+        - `PSP/GAME/XLT/cache/scan.log`: start-up, the library, launching, HOME, USB sync notes
+        - `PSP/GAME/XLT/cache/video.log`: video and music playback
+        - `PSP/GAME/XLT/cache/web.log`: the web browser and Check for updates
+        - `PSP/GAME/XLT/xltsync.log`: USB sync
+        - `SEPLUGINS/xltshot.log`: screenshots and play time in games
+  - type: textarea
+    id: plugins
+    attributes:
+      label: Plugins
+      description: Other plugins you have on (Settings → Plugins), especially if the problem is in games.
+  - type: textarea
+    id: shots
+    attributes:
+      label: Screenshots
+      description: L+R+START saves one to `PICTURE/`; you can drag it here.

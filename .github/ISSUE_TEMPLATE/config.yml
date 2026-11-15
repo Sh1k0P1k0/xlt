@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: XLT Tool (the PC side)
+    url: https://github.com/boubounokefalos/xlt-tool/issues/new/choose
+    about: Problems with converting, the game library or sending from the PC go to XLT Tool.
