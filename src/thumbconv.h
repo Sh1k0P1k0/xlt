@@ -10,6 +10,9 @@
 
 /* Decodes `png` and writes THUMB_BYTES of swizzled ABGR1555 into `out`.
  * Other sizes are scaled (nearest) to 144x80. Returns 0 on success. */
+/* Scale an RGBA image (sw x sh) to fit 144x80 with its aspect kept, centred on
+ * transparent; out is 144x80 RGBA. */
+void thumb_fit(const uint8_t *rgba, int sw, int sh, uint8_t *out);
 int thumb_from_png(const void *png, uint32_t size, uint8_t *out);
 
 /* Swizzles 144x80 RGBA8 into the 5551 texture layout. */

@@ -28,6 +28,9 @@
 #define FAILED 64
 #define DONE_MAX 16
 #define T16_MAGIC 0x36315458u /* "XT16" */
+/* game ICON0s: once nearest-stretched to 144x80, now fitted with their aspect
+ * kept; the new magic makes the old stretched files decode again, once */
+#define T17_MAGIC 0x37315458u /* "XT17" */
 
 typedef struct {
     uint32_t key;
@@ -71,7 +74,7 @@ static uint8_t *slot_vram(int i, int uncached)
 
 /* ------------------------------------------------------------ loader side */
 
-static int load_cached(uint32_t key, uint8_t *out)
+static int load_cached(uint32_t key, uint32_t magic, uint8_t *out)
 {
     char path[280];
     snprintf(path, sizeof(path), "%s/%08X.t16", s_cache_dir, (unsigned)key);
@@ -79,20 +82,20 @@ static int load_cached(uint32_t key, uint8_t *out)
     if (fd < 0)
         return -1;
     uint32_t h[2];
-    int ok = sceIoRead(fd, h, 8) == 8 && h[0] == T16_MAGIC && h[1] == key &&
+    int ok = sceIoRead(fd, h, 8) == 8 && h[0] == magic && h[1] == key &&
              sceIoRead(fd, out, THUMB_BYTES) == THUMB_BYTES;
     sceIoClose(fd);
     return ok ? 0 : -1;
 }
 
-static void store_cached(uint32_t key, const uint8_t *tex)
+static void store_cached(uint32_t key, uint32_t magic, const uint8_t *tex)
 {
     char path[280];
     snprintf(path, sizeof(path), "%s/%08X.t16", s_cache_dir, (unsigned)key);
     SceUID fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd < 0)
         return;
-    uint32_t h[2] = {T16_MAGIC, key};
+    uint32_t h[2] = {magic, key};
     sceIoWrite(fd, h, 8);
     sceIoWrite(fd, tex, THUMB_BYTES);
     sceIoClose(fd);
@@ -131,13 +134,14 @@ static int loader_thread(SceSize args, void *argp)
         if (st < 0)
             continue;
 
-        int ok = load_cached(r.key, s_stage[st]) == 0;
+        uint32_t magic = r.is_video || r.is_music || r.is_umd || r.is_picture ? T16_MAGIC : T17_MAGIC;
+        int ok = load_cached(r.key, magic, s_stage[st]) == 0;
         /* a video's thumbnail is a decoded frame, made by the video player (thumbs_put) */
         if (!ok && !r.is_video && (r.is_music     ? thumb_from_music(r.path, r.icon_off, s_stage[st])
                     : r.is_umd ? thumb_from_picture(UMD_ICON0, s_stage[st]) /* a plain PNG on the disc */
                     : r.is_picture ? thumb_from_picture(r.path, s_stage[st])
                                    : thumb_from_entry(r.path, r.is_disc, r.icon_off, r.icon_size, s_stage[st])) == 0) {
-            store_cached(r.key, s_stage[st]);
+            store_cached(r.key, magic, s_stage[st]);
             ok = 1;
         }
 

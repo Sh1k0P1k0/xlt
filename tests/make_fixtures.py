@@ -35,15 +35,43 @@ def icon_png(w=144, h=80, alpha=True):
     return b.getvalue(), img
 
 
+def fit_rgba(img, W=144, H=80):
+    """thumb_fit: keep the aspect, centre on transparent, alpha-weighted box filter."""
+    sw, sh = img.size
+    px = img.load()
+    dw, dh = W, H
+    if sw * H > sh * W:
+        dh = (sh * W + sw // 2) // sw
+    else:
+        dw = (sw * H + sh // 2) // sh
+    dw, dh = max(dw, 1), max(dh, 1)
+    ox, oy = (W - dw) // 2, (H - dh) // 2
+    out = [[(0, 0, 0, 0)] * W for _ in range(H)]
+    for y in range(dh):
+        sy0, sy1 = y * sh // dh, max((y + 1) * sh // dh, y * sh // dh + 1)
+        for x in range(dw):
+            sx0, sx1 = x * sw // dw, max((x + 1) * sw // dw, x * sw // dw + 1)
+            r = g = b = a = n = 0
+            for sy in range(sy0, sy1):
+                for sx in range(sx0, sx1):
+                    pr, pg, pb, pa = px[sx, sy]
+                    r += pr * pa; g += pg * pa; b += pb * pa; a += pa; n += 1
+            out[oy + y][ox + x] = (r // a, g // a, b // a, a // n) if a else (0, 0, 0, a // n)
+    return out
+
+
 def expected_thumb(img):
     img = img.convert("RGBA")
     W, H = 144, 80
     out = bytearray(W * H * 2)
-    sw, sh = img.size
-    px = img.load()
+    if img.size == (W, H):
+        px = img.load()
+        rows = [[px[x, y] for x in range(W)] for y in range(H)]
+    else:
+        rows = fit_rgba(img, W, H)
     for y in range(H):
         for x in range(W):
-            r, g, b, a = px[x * sw // W, y * sh // H]
+            r, g, b, a = rows[y][x]
             v = (0x8000 if a >= 128 else 0) | (b >> 3) << 10 | (g >> 3) << 5 | (r >> 3)
             bx, inb = (x * 2) // 16, (x * 2) % 16
             o = ((y // 8) * (W * 2 // 16) + bx) * 128 + (y % 8) * 16 + inb
@@ -109,7 +137,7 @@ png, img = icon_png()
 make_iso(os.path.join(OUT, "game.iso"), "Test Game™\nSubtitle", "ULUS99999", png)
 open(os.path.join(OUT, "icon.expect"), "wb").write(expected_thumb(img))
 
-png2, img2 = icon_png(80, 80, alpha=False)  # off-size icon: must be scaled
+png2, img2 = icon_png(80, 80, alpha=False)  # off-size (PS1-style) icon: fitted with its aspect kept, not stretched
 make_pbp(os.path.join(OUT, "hb.pbp"), "MG", "My Homebrew", png2)
 open(os.path.join(OUT, "icon2.expect"), "wb").write(expected_thumb(img2))
 make_pbp(os.path.join(OUT, "update.pbp"), "PG", "Some Update", png2)

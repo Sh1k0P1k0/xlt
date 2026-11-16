@@ -64,6 +64,47 @@ int thumb_from_music(const char *path, uint32_t icon_off, uint8_t *out)
     return 0;
 }
 
+/* An off-size ICON0 (PS1 icons are 80x80, some homebrew ones are other sizes)
+ * keeps its aspect: scaled to fit 144x80 and centred, the rest left
+ * transparent. Each output pixel averages the source pixels it covers,
+ * weighting colour by alpha so transparent edges don't bleed in. */
+void thumb_fit(const uint8_t *rgba, int sw, int sh, uint8_t *out)
+{
+    memset(out, 0, (size_t)THUMB_W * THUMB_H * 4);
+    int dw = THUMB_W, dh = THUMB_H;
+    if ((long)sw * THUMB_H > (long)sh * THUMB_W) dh = (int)(((long)sh * THUMB_W + sw / 2) / sw);
+    else dw = (int)(((long)sw * THUMB_H + sh / 2) / sh);
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    int ox = (THUMB_W - dw) / 2, oy = (THUMB_H - dh) / 2;
+    for (int y = 0; y < dh; y++) {
+        int sy0 = (int)((long)y * sh / dh), sy1 = (int)((long)(y + 1) * sh / dh);
+        if (sy1 <= sy0) sy1 = sy0 + 1;
+        for (int x = 0; x < dw; x++) {
+            int sx0 = (int)((long)x * sw / dw), sx1 = (int)((long)(x + 1) * sw / dw);
+            if (sx1 <= sx0) sx1 = sx0 + 1;
+            unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
+            for (int sy = sy0; sy < sy1; sy++) {
+                const uint8_t *p = rgba + ((size_t)sy * sw + sx0) * 4;
+                for (int sx = sx0; sx < sx1; sx++, p += 4) {
+                    r += p[0] * p[3];
+                    g += p[1] * p[3];
+                    b += p[2] * p[3];
+                    a += p[3];
+                    n++;
+                }
+            }
+            uint8_t *o = out + ((size_t)(oy + y) * THUMB_W + ox + x) * 4;
+            if (a) {
+                o[0] = (uint8_t)(r / a);
+                o[1] = (uint8_t)(g / a);
+                o[2] = (uint8_t)(b / a);
+            }
+            o[3] = (uint8_t)(a / n);
+        }
+    }
+}
+
 int thumb_from_png(const void *png, uint32_t size, uint8_t *out)
 {
     png_image img;
@@ -90,13 +131,9 @@ int thumb_from_png(const void *png, uint32_t size, uint8_t *out)
     if (img.width == THUMB_W && img.height == THUMB_H) {
         thumb_pack(rgba, out);
     } else {
-        /* off-size ICON0: nearest-scale to 144x80 first */
-        static uint8_t scaled[THUMB_W * THUMB_H * 4];
-        for (int y = 0; y < THUMB_H; y++)
-            for (int x = 0; x < THUMB_W; x++)
-                memcpy(scaled + ((size_t)y * THUMB_W + x) * 4,
-                       rgba + ((size_t)(y * (int)img.height / THUMB_H) * img.width + x * (int)img.width / THUMB_W) * 4, 4);
-        thumb_pack(scaled, out);
+        static uint8_t fitted[THUMB_W * THUMB_H * 4];
+        thumb_fit(rgba, (int)img.width, (int)img.height, fitted);
+        thumb_pack(fitted, out);
     }
     free(rgba);
     png_image_free(&img);
