@@ -18,6 +18,11 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
 
+## New in 1.1.1
+
+- **Fixed:** PS1 and homebrew icons that aren't the usual 144×80 (PS1 icons are square) are no longer stretched
+  to fill the tile; they keep their shape, centred. Thumbnails saved by older versions are redone once.
+
 ## New in 1.1.0
 
 - **USB sync with [XLT Tool](https://github.com/boubounokefalos/xlt-tool).** Send videos, music, pictures, books
