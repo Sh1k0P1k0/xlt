@@ -27,6 +27,11 @@
  * tracks: s_alt says which, s_handle stays -1, and they hand the output blocks
  * of s_chunk samples (4096 if the hardware takes it): ~85 ms of sound, so a slow
  * Memory Stick read or a long FLAC block is hidden behind the one playing.
+ *
+ * The equalizer (eq.c, Settings > Sound or START in Now Playing) runs on every
+ * block just before it is handed over, in the player thread: the UI only
+ * changes g_cfg's preset and gains, and eq_process notices. AAC's blocks are
+ * read through the cache only while it runs, and flushed out again after.
  */
 /* Parts of this file (the MP3 engine (decoder setup, stream feeding, frame and VBR parsing, seeking, SRC output)) are adapted from psp5 by 08Weber,
  * https://github.com/08Weber/psp5, GPL-3.0. */
@@ -51,6 +56,7 @@
 #include "flac.h"
 #include "mp4.h"
 #include "readwin.h"
+#include "eq.h"
 
 #define MP3_END 0x80671402
 #define ALREADY_LOADED 0x80020139
@@ -95,6 +101,18 @@ static u32 s_sleep_at;               /* now_ms() when the sleep timer stops the 
  * (worked out again if Settings changes the mode mid-song). Only ever a cut. */
 static Id3Info s_gain_tags;
 static int s_level_mode = -1, s_level = PSP_AUDIO_VOLUME_MAX;
+static Eq s_eq;                      /* the equalizer's filters (player thread) */
+
+/* The gains the equalizer is set to; 0 if it would do nothing. */
+static int eq_wanted(int g[EQ_BANDS])
+{
+    eq_gains(g_cfg.eq_preset, g_cfg.eq_custom, g);
+    for (int b = 0; b < EQ_BANDS; b++)
+        if (g[b])
+            return 1;
+    s_eq.rate = 0; /* made afresh, memory and all, when it is turned on again */
+    return 0;
+}
 
 static int out_volume(void)
 {
@@ -116,6 +134,7 @@ static void read_gain(const char *path, uint64_t size)
     if (audio_tags(path, size, &s_gain_tags) != 0)
         memset(&s_gain_tags, 0, sizeof(s_gain_tags));
     s_level_mode = -1; /* worked out at the first block */
+    eq_reset(&s_eq);   /* nothing of the last song rings on */
 }
 static int s_sleep_min;
 static volatile int s_elapsed_ms, s_duration_ms;
@@ -442,6 +461,12 @@ static int play_aac(void)
         return end;
     if (got < s_chunk)
         memset((void *)((u32)(out + got * 2) | 0x40000000u), 0, (size_t)(s_chunk - got) * 4);
+    int g[EQ_BANDS];
+    if (eq_wanted(g)) { /* the decoder wrote past the cache: drop what it holds, filter, write it out */
+        sceKernelDcacheInvalidateRange(out, (unsigned)s_chunk * 4);
+        eq_process(&s_eq, out, got, s_rate, g);
+        sceKernelDcacheWritebackInvalidateRange(out, (unsigned)s_chunk * 4);
+    }
     alt_output(out);
     a->slot = (a->slot + 1) % PCM_BUFS;
     note_played(got);
@@ -474,6 +499,9 @@ static int play_flac(void)
     if (!fill)
         return 0;
     memset(o + fill * 2, 0, (size_t)(s_chunk - fill) * 4);
+    int g[EQ_BANDS];
+    if (eq_wanted(g))
+        eq_process(&s_eq, o, fill, s_rate, g);
     sceKernelDcacheWritebackRange(o, (size_t)s_chunk * 4);
     s_out_idx ^= 1;
     alt_output(o);
@@ -708,6 +736,7 @@ static u32 find_frame(u32 pos)
 /* 0 = done, -1 = past the end (go to the next track). */
 static int seek_to(int ms)
 {
+    eq_reset(&s_eq);
     if (s_alt) {
         if (s_duration_ms <= 0)
             return 0;
@@ -772,7 +801,8 @@ static int play_frame(void)
     if (!src_reserve(want, s_rate))
         return -1;
     void *out = pcm;
-    if (out_ch == 1 || samples != s_src_samples) {
+    int g[EQ_BANDS], eq = eq_wanted(g);
+    if (out_ch == 1 || samples != s_src_samples || eq) { /* (the EQ works on a copy, not the decoder's buffer) */
         short *o = s_out[s_out_idx];
         s_out_idx ^= 1;
         for (int i = 0; i < samples; i++) {
@@ -784,6 +814,10 @@ static int play_frame(void)
             }
         }
         memset(o + samples * 2, 0, (s_src_samples - samples) * 4);
+        if (eq) {
+            eq_process(&s_eq, o, samples, s_rate, g);
+            sceKernelDcacheWritebackRange(o, (unsigned)s_src_samples * 4);
+        }
         out = o;
     }
     sceAudioSRCOutputBlocking(out_volume(), out);

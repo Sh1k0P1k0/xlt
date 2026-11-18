@@ -62,6 +62,7 @@ void ui_request_exit(void);
 void ui_library_changed(void); /* the library views were rebuilt */
 void ui_open_music(void);       /* the Music list, from the control center */
 void ui_open_removed(void);     /* the Removed list, from Settings */
+void ui_arrange_home(void);     /* Arrange home menu, from Settings: ←/→ move the focused card, ✕ saves */
 void ui_open_move(const Entry *e); /* Games / Homebrew: the Move to menu (tab and folder) */
 /* Music (the song's options sheet): */
 void ui_music_sort(int dir);                 /* the next / previous order (g_cfg.music_sort), applied and saved */

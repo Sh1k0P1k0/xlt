@@ -118,8 +118,8 @@ void settings_open(void) { }
 void settings_open_section(int s) { }
 int settings_recent(int i) { return 0; }
 int settings_section_icon(int s) { return 0; }
-const char * settings_section_name(int s) { return NULL; }
-const char * settings_section_sub(int s) { return NULL; }
+const char * settings_section_name(int s) { static const char *n[] = {"XLT", "Games", "Plugins", "Power & Display", "Sound & Controls", "Network", "System", "About"}; return n[s & 7]; }
+const char * settings_section_sub(int s) { return ""; }
 int settings_step(void) { return 0; }
 int sysctl_usb_active(void) { return 0; }
 int usbsync_attached(void) { return 0; }
@@ -127,9 +127,20 @@ int usbsync_talking(void) { return 0; }
 int usbsync_progress(char *o, int n) { (void)o; (void)n; return 0; }
 int thumbs_missing(const Entry *e) { return 0; }
 int thumbs_pump(void) { return 0; }
-const Entry * umd_entry(void) { return NULL; }
-int umd_poll(void) { return 0; }
-int umd_state(void) { return 0; }
+int g_umd_preview; /* ui_preview sets it (UMD_*) to put a disc in the drive */
+const Entry * umd_entry(void)
+{
+    static Entry e = {.title = "Lumen Drift", .id = "ULES01234", .kind = KIND_UMD};
+    return &e;
+}
+int umd_poll(void) /* 1 once after g_umd_preview changed */
+{
+    static int seen;
+    if (seen == g_umd_preview) return 0;
+    seen = g_umd_preview;
+    return 1;
+}
+int umd_state(void) { return g_umd_preview; }
 int video_covers(void) { return 0; }
 void video_draw(void) { }
 int video_input(unsigned int pressed) { return 0; }

@@ -18,6 +18,7 @@ int sysctl_brightness_set(int pct);    /* 0 on success */
 int brightness_to_hw(int pct);
 int brightness_from_hw(int level);
 int sysctl_brightness_hw(void);        /* raw panel level, -1 if unknown */
+int sysctl_brightness_last_set(void);  /* panel level XLT last set, -1 = none yet */
 
 /* System volume, the one the volume buttons change: 0..VOLUME_MAX. */
 #define VOLUME_MAX 30

@@ -11,8 +11,8 @@ body:
     id: version
     attributes:
       label: XLT version
-      description: 'Settings → About shows it ("Launcher: XLT 1.1.1").'
-      placeholder: "1.1.1"
+      description: 'Settings → About shows it ("Launcher: XLT 1.2.0").'
+      placeholder: "1.2.0"
     validations:
       required: true
   - type: dropdown

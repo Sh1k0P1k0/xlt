@@ -48,6 +48,9 @@ typedef struct {
     char sub_lang[4];   /* the subtitle language last picked (ISO 639-2), "off", or "" = the file's default */
     int battery_pct;    /* the status bar shows the battery level as a number (1) or the icon only (0) */
     int usb_sync;       /* USB sync on: the PC can send files whenever the cable is in (usbsync.c) */
+    int eq_preset;      /* the music equalizer: EQ_* (eq.h), 0 = off */
+    int eq_custom[5];   /* Custom's gains in dB, -12..12, 60 Hz to 12 kHz (EQ_BANDS) */
+    char home_order[72]; /* the home menu's cards, keys joined by commas (homeorder.h, ui.c); "" = the default order */
 } GlobalCfg;
 
 #define GRID_FILES (1 << 7)

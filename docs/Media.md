@@ -35,7 +35,15 @@ The **Music** card lists the songs in `MUSIC/` (and two levels of subfolders, e.
   (↑/↓ carry the song, ✕ saves). △ on a playlist opens its own menu.
 - **Now Playing:** a full screen with a big cover, opened with ✕ on the song that is playing or △ on the control
   center's music card. ✕ or START pauses, ←/→ change song, L/R jump 10 s, △ turns shuffle on or off, □ changes
-  repeat (the list or one song), ↑/↓ set the sleep timer and ○ goes back.
+  repeat (the list or one song), ↑/↓ set the sleep timer, START opens the equalizer and ○ goes back.
+- **Equalizer:** five bands, a low shelf at 60 Hz, peaks at 250 Hz, 1 kHz and 4 kHz and a high shelf at 12 kHz,
+  each −12..+12 dB, with the presets Off, Bass, Treble, Vocal, Loudness and Custom (`src/eq.c`). START in Now
+  Playing opens the panel with the real curve: L/R change the preset, ←/→ pick a band, ↑/↓ set its level (which
+  makes it Custom, starting from the curve that was on), △ makes Custom flat, ○ / ✕ / START close it. **Settings → Sound & Controls → Equalizer** cycles the presets. Saved as
+  `equalizer` and `equalizer_custom` in `xlt.ini`. It runs on every MP3, AAC and FLAC block just before the SRC
+  output, in fixed point (Q28 coefficients, Direct Form I, with error feedback so quiet bass isn't lost); bands
+  at 0 dB are skipped and Off costs nothing. The sound is turned down by the curve's peak, so boosts never clip.
+  Video sound isn't equalized. `tests/test_eq.c` checks the filters against the designed curve at 8–48 kHz.
 - **Lyrics:** a `.lrc` file with the song's name next to it, otherwise lyrics stored in the song itself (ID3
   `USLT`, M4A `©lyr`, FLAC `LYRICS` or `UNSYNCEDLYRICS`), timed or not. The current and next lines show on Now
   Playing.

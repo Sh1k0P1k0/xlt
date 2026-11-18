@@ -27,6 +27,9 @@ extern int g_rec_preview;
 #include "../src/sfx.h"
 #include "../src/thumbs.h"
 #include "../src/imgdecode.h"
+#include "../src/ui_internal.h"
+#include "../src/umd.h"
+extern int g_umd_preview;
 
 /* ------------------------------------------------------------ the library */
 
@@ -419,6 +422,45 @@ int main(int argc, char **argv)
     shot("ui_09_games_list");
     press(PSP_CTRL_TRIANGLE);
     shot("ui_10_game_sheet");
+
+    /* Arrange home menu (from Settings): Games carried left past Homebrew, Music two to the right */
+    press(PSP_CTRL_CIRCLE);
+    press(PSP_CTRL_CIRCLE);                   /* home, on Games */
+    ui_arrange_home();
+    frames(45);
+    shot("ui_11_arrange");
+    step(PSP_CTRL_LEFT);
+    frames(4);
+    shot("ui_11a_arrange_sliding");
+    frames(45);
+    shot("ui_11b_games_first");
+    press(PSP_CTRL_LEFT);                     /* already first: nothing */
+    press(PSP_CTRL_RTRIGGER);                 /* Homebrew */
+    press(PSP_CTRL_RTRIGGER);                 /* Music */
+    press(PSP_CTRL_RIGHT);
+    press(PSP_CTRL_RIGHT);
+    shot("ui_11c_music_moved");
+    press(PSP_CTRL_CROSS);                    /* put down: saved */
+    shot("ui_11d_saved");
+    if (strcmp(g_cfg.home_order, "games,homebrew,video,pictures,music,files,web,settings")) {
+        printf("ui_preview: home_order is \"%s\"\n", g_cfg.home_order);
+        return 1;
+    }
+    for (int i = 0; i < 6; i++) press(PSP_CTRL_RTRIGGER); /* to the far end: Settings is still last */
+    shot("ui_11e_last_card");
+    for (int i = 0; i < 8; i++) press(PSP_CTRL_LTRIGGER); /* back to the first: Games */
+    g_umd_preview = UMD_GAME;                 /* a disc goes in: first, ahead of the order */
+    frames(60);
+    shot("ui_12_umd_first");
+    ui_arrange_home();                        /* from the UMD card: the card after it is picked up */
+    frames(45);
+    press(PSP_CTRL_LEFT);                     /* can't go past the disc */
+    press(PSP_CTRL_LTRIGGER);                 /* nor pick it */
+    shot("ui_12a_arrange_with_umd");
+    press(PSP_CTRL_CIRCLE);                   /* done, nothing changed */
+    g_umd_preview = UMD_NONE;                 /* out again: the focus lands on the first card */
+    frames(60);
+    shot("ui_12b_umd_out");
     puts("ui_preview: ok");
     return 0;
 }

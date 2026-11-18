@@ -8,6 +8,12 @@
  *
  * Buttons as on the control center's music card: ✕ play/pause, ←/→ previous
  * and next song, L/R seek 10 s; △ shuffle, □ repeat, ○ back.
+ *
+ * START opens the equalizer over it: L/R picks a preset, ←/→ a band, ↑/↓ sets
+ * that band (which turns the preset into Custom, starting from its curve),
+ * △ flattens Custom, ○ / ✕ / START close it and save xlt.ini if it changed.
+ * The player follows g_cfg at its next block. The curve drawn is the real
+ * one (eq_response_db at 44.1 kHz), worked out only when the gains change.
  */
 #include <pspkernel.h>
 #include <pspgu.h>
@@ -26,8 +32,11 @@
 #include "imgdecode.h"
 #include "lrc.h"
 #include "id3.h"
+#include "eq.h"
+#include "gamecfg.h"
 #include <pspiofilemgr.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define COVER 144                 /* decoded size */
 #define COVER_X 28
@@ -49,6 +58,8 @@ static struct {
     int cover_want;     /* the cover job asked for this song (cover_gen) */
     Lrc lyr;            /* its timed lyrics, if it has any */
     int lyr_idx;        /* the line showing */
+    int eq_open, eq_band, eq_preset0, eq_custom0[EQ_BANDS]; /* the equalizer panel; what it was when opened */
+    Spring eq_t;
 } N;
 
 /* The big cover: two buffers, the worker fills the one not shown. */
@@ -155,17 +166,153 @@ static void close_np(void)
     spring_to(&N.t, 0);
 }
 
+/* ---------------------------------------------------------- equalizer */
+
+#define PEQ_X 20
+#define PEQ_Y 30
+#define PEQ_W (SCREEN_W - 2 * PEQ_X)
+#define PEQ_H 212
+#define PEQ_GX (PEQ_X + 40)            /* the graph */
+#define PEQ_GW (PEQ_W - 40 - 20)
+#define PEQ_GY (PEQ_Y + 82)
+#define PEQ_GH 96                     /* -12 .. +12 dB */
+#define PEQ_LO 25.0f                  /* Hz at the graph's edges */
+#define PEQ_HI 20000.0f
+
+static int pill(int x, int y, const char *s, int on);
+
+static void job_save_cfg(void *arg) { (void)arg; globalcfg_save(); }
+
+static void eq_close(void)
+{
+    N.eq_open = 0;
+    spring_to(&N.eq_t, 0);
+    if (g_cfg.eq_preset != N.eq_preset0 || memcmp(g_cfg.eq_custom, N.eq_custom0, sizeof(N.eq_custom0)))
+        bg_post(job_save_cfg, NULL, 0);
+}
+
+static void eq_input(unsigned int p)
+{
+    if (p & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS | PSP_CTRL_START)) {
+        eq_close();
+        return;
+    }
+    if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+        int d = p & PSP_CTRL_LTRIGGER ? -1 : 1;
+        g_cfg.eq_preset = (g_cfg.eq_preset + d + EQ_PRESETS) % EQ_PRESETS;
+        sfx_play(SFX_MOVE);
+    } else if (p & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
+        int d = p & PSP_CTRL_LEFT ? -1 : 1;
+        N.eq_band = (N.eq_band + d + EQ_BANDS) % EQ_BANDS;
+        sfx_play(SFX_MOVE);
+    } else if (p & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+        if (g_cfg.eq_preset != EQ_CUSTOM) { /* Custom starts from the curve that was on */
+            int g[EQ_BANDS];
+            eq_gains(g_cfg.eq_preset, g_cfg.eq_custom, g);
+            memcpy(g_cfg.eq_custom, g, sizeof(g));
+            g_cfg.eq_preset = EQ_CUSTOM;
+        }
+        int *v = &g_cfg.eq_custom[N.eq_band], d = p & PSP_CTRL_UP ? 1 : -1;
+        if (*v + d >= -EQ_MAX_DB && *v + d <= EQ_MAX_DB) {
+            *v += d;
+            sfx_play(SFX_MOVE);
+        }
+    } else if (p & PSP_CTRL_TRIANGLE) {
+        memset(g_cfg.eq_custom, 0, sizeof(g_cfg.eq_custom));
+        g_cfg.eq_preset = EQ_CUSTOM;
+        ui_toast("Custom is flat again");
+    }
+}
+
+static int eq_px(float hz) { return PEQ_GX + (int)(PEQ_GW * logf(hz / PEQ_LO) / logf(PEQ_HI / PEQ_LO) + 0.5f); }
+static int eq_py(float db)
+{
+    if (db > EQ_MAX_DB) db = EQ_MAX_DB;
+    if (db < -EQ_MAX_DB) db = -EQ_MAX_DB;
+    return PEQ_GY + PEQ_GH / 2 - (int)(db * (PEQ_GH / 2) / EQ_MAX_DB + (db < 0 ? -0.5f : 0.5f));
+}
+
+static void eq_draw(int oy)
+{
+    int t = N.eq_t.x > FX(1) ? FX(1) : N.eq_t.x;
+    if (t <= 0)
+        return;
+    gfx_rect(0, 0, SCREEN_W, SCREEN_H, (u32)((150 * t) >> 8) << 24); /* the screen under it, dimmed */
+    int y0 = PEQ_Y + oy + ((256 - t) * 20 >> 8);
+    gfx_rrect(PEQ_X, y0, PEQ_W, PEQ_H, 14, C_SURFACE);
+    int dy = y0 - PEQ_Y;
+    gfx_text(FONT_BOLD, PEQ_X + 16, y0 + 12, "Equalizer", C_TEXT);
+    if (g_cfg.eq_preset != EQ_OFF)
+        gfx_text_right(FONT_SMALL, PEQ_X + PEQ_W - 16, y0 + 16, "Turned down by the boost, so it never distorts", C_MUTED);
+    int px = PEQ_X + 16;
+    for (int i = 0; i < EQ_PRESETS; i++)
+        px = pill(px, y0 + 42, eq_preset_name(i), i == g_cfg.eq_preset);
+
+    int g[EQ_BANDS];
+    eq_gains(g_cfg.eq_preset, g_cfg.eq_custom, g);
+    /* the curve, worked out again only when the gains change */
+    static short curve[PEQ_GW + 1];
+    static int cg[EQ_BANDS] = {99};
+    if (memcmp(cg, g, sizeof(cg))) {
+        memcpy(cg, g, sizeof(cg));
+        for (int i = 0; i <= PEQ_GW; i++)
+            curve[i] = (short)eq_py(eq_response_db(44100, g, PEQ_LO * powf(PEQ_HI / PEQ_LO, (float)i / PEQ_GW)));
+    }
+    int gy = PEQ_GY + dy, mid = eq_py(0) + dy;
+    for (int db = -EQ_MAX_DB; db <= EQ_MAX_DB; db += 6) /* grid: -12, -6, 0, +6, +12 */
+        gfx_rect(PEQ_GX, eq_py((float)db) + dy, PEQ_GW, 1, db ? C_RAISED : C_LINE);
+    gfx_text_right(FONT_SMALL, PEQ_GX - 6, gy - 6, "+12", C_MUTED);
+    gfx_text_right(FONT_SMALL, PEQ_GX - 6, mid - 7, "0", C_MUTED);
+    gfx_text_right(FONT_SMALL, PEQ_GX - 6, gy + PEQ_GH - 8, "-12", C_MUTED);
+    int on = g_cfg.eq_preset != EQ_OFF;
+    u32 lc = on ? C_ACCENT : C_MUTED, fill = (C_ACCENT & 0x00FFFFFFu) | 0x38000000u;
+    for (int i = 0; i <= PEQ_GW; i++) {
+        int y = curve[i] + dy, prev = (i ? curve[i - 1] : curve[i]) + dy;
+        if (on && y != mid) /* the area between the curve and 0 dB */
+            gfx_rect(PEQ_GX + i, y < mid ? y : mid, 1, y < mid ? mid - y : y - mid, fill);
+        int a = y < prev ? y : prev, b = y < prev ? prev : y;
+        gfx_rect(PEQ_GX + i, a - 1, 1, b - a + 2, lc);
+    }
+    /* the bands: a knob at each one's own setting, its label under the graph */
+    for (int b = 0; b < EQ_BANDS; b++) {
+        int x = eq_px((float)eq_band_hz(b)), y = eq_py((float)g[b]) + dy, sel = b == N.eq_band;
+        int r = sel ? 7 : 5;
+        if (sel) gfx_rect(x, gy, 1, PEQ_GH, C_FOCUS);
+        gfx_rrect(x - r, y - r, 2 * r, 2 * r, r, sel ? C_FOCUS : on ? C_TEXT : C_MUTED);
+        char lab[16];
+        gfx_text_center(FONT_SMALL, x, gy + PEQ_GH + 8, eq_band_label(b), sel ? C_TEXT : C_MUTED);
+        if (sel) { /* beside the knob, off the line that runs through it */
+            snprintf(lab, sizeof(lab), g[b] > 0 ? "+%d dB" : "%d dB", g[b]);
+            int lw = gfx_text_width(FONT_SMALL, lab), ty = y - 8 < gy - 6 ? gy - 6 : y - 8;
+            int lx = b == EQ_BANDS - 1 ? x - r - 6 - lw : x + r + 6;
+            gfx_rrect(lx - 3, ty, lw + 6, 16, 4, C_SURFACE);
+            gfx_text(FONT_SMALL, lx, ty, lab, C_TEXT);
+        }
+    }
+}
+
 int np_input(unsigned int p)
 {
     if (!N.open)
         return 0;
+    if (N.eq_open) {
+        eq_input(p);
+        return 1;
+    }
+    if (p & PSP_CTRL_START) {
+        N.eq_open = 1;
+        N.eq_preset0 = g_cfg.eq_preset;
+        memcpy(N.eq_custom0, g_cfg.eq_custom, sizeof(N.eq_custom0));
+        spring_to(&N.eq_t, FX(1));
+        return 1;
+    }
     int st = music_state();
     if (p & PSP_CTRL_CIRCLE) {
         close_np();
         return 1;
     }
     if (st == MUSIC_STOPPED) {
-        if (p & (PSP_CTRL_CROSS | PSP_CTRL_START)) {
+        if (p & PSP_CTRL_CROSS) {
             if (music_can_resume(NULL, NULL)) {
                 if (music_resume() != 0) ui_toast("The songs from last time aren't there any more");
             } else {
@@ -178,7 +325,7 @@ int np_input(unsigned int p)
         char msg[48];
         snprintf(msg, sizeof(msg), m ? "Music stops in %d minutes" : "Sleep timer off", m);
         ui_toast(msg);
-    } else if (p & (PSP_CTRL_CROSS | PSP_CTRL_START)) music_toggle();
+    } else if (p & PSP_CTRL_CROSS) music_toggle();
     else if (p & PSP_CTRL_LEFT) music_prev();
     else if (p & PSP_CTRL_RIGHT) music_next();
     else if (p & PSP_CTRL_LTRIGGER) music_seek(-10000);
@@ -198,9 +345,10 @@ int np_input(unsigned int p)
 
 int np_step(void)
 {
-    int old = N.t.x;
+    int old = N.t.x, old_eq = N.eq_t.x;
     spring_step(&N.t);
-    int dirty = N.t.x != old;
+    spring_step(&N.eq_t);
+    int dirty = N.t.x != old || N.eq_t.x != old_eq;
     if (!np_is_open())
         return dirty;
     if (N.gen != music_generation()) {
@@ -449,26 +597,40 @@ void np_draw(const SysStatus *st)
         gfx_text(FONT_SMALL, COVER_X, ny, "Last song in the list", C_MUTED);
     }
 
+    eq_draw(oy);
     gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (N.eq_open) {
+        static const Hint eq_h[] = {
+            {-1, "L/R", 0, "Preset"},
+            {-1, "<-/->", 0, "Band"},
+            {-1, "Up/Down", 0, "Level"},
+            {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Flat"},
+            {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Done"},
+        };
+        ui_draw_hints(eq_h, COUNT(eq_h), SCREEN_W / 2, NP_HINT_Y);
+        gfx_set_opacity(256);
+        return;
+    }
     static const Hint play_h[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Pause"},
         {-1, "<-/->", 0, "Song"},
         {-1, "L/R", 0, "Seek"},
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Shuffle"},
         {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Repeat"},
+        {-1, "START", 0, "EQ"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
-    Hint h[6];
+    Hint h[7];
     int n = 0;
-    if (on) {
-        memcpy(h, play_h, sizeof(play_h));
-        n = COUNT(play_h);
-        if (state == MUSIC_PAUSED) h[0].label = "Play";
+    if (on) { /* (no ✕ Pause: the round button says it, and START EQ needs the room) */
+        memcpy(h, play_h + 1, sizeof(play_h) - sizeof(play_h[0]));
+        n = COUNT(play_h) - 1;
     } else {
         h[n++] = (Hint){ICON_BTN_CROSS, NULL, C_BTN_CROSS, resumable ? "Resume" : "Open Music"};
         h[n++] = play_h[3];
         h[n++] = play_h[4];
         h[n++] = play_h[5];
+        h[n++] = play_h[6];
     }
     ui_draw_hints(h, n, SCREEN_W / 2, NP_HINT_Y);
     gfx_set_opacity(256);

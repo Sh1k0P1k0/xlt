@@ -48,6 +48,7 @@
 #include "mbrowse.h"
 #include "ui_state.h"
 #include "recorder.h"
+#include "homeorder.h"
 #include <stdlib.h>
 #include <strings.h>
 
@@ -127,6 +128,40 @@ static int cat_row(void)
          : S.cat == CAT_WEB ? ROW_WEB : cat_view();
 }
 static int cat_shown(int c) { return c != CAT_UMD || umd_state() != UMD_NONE; }
+
+/* The cards the user can arrange (all but the UMD, which always comes first),
+ * by the names xlt.ini keeps their order under: card CAT_HOMEBREW + i is s_card_keys[i]. */
+#define ARRANGED (CAT_COUNT - 1)
+static const char *const s_card_keys[ARRANGED] = {"homebrew", "games", "music", "video", "pictures", "files", "web",
+                                                  "settings"};
+_Static_assert(CAT_UMD == 0 && CAT_HOMEBREW == 1 && CAT_SETTINGS == CAT_COUNT - 1, "s_card_keys follows the CAT_ order");
+
+static void order_load(void)
+{
+    int o[ARRANGED];
+    homeorder_parse(g_cfg.home_order, s_card_keys, ARRANGED, o);
+    S.order[0] = CAT_UMD;
+    for (int i = 0; i < ARRANGED; i++)
+        S.order[i + 1] = o[i] + CAT_HOMEBREW;
+}
+
+/* Where card c is in the row (0 = the UMD's place). */
+static int card_pos(int c)
+{
+    for (int k = 0; k < CAT_COUNT; k++)
+        if (S.order[k] == c)
+            return k;
+    return 0;
+}
+
+/* The shown card next to the focused one in direction dir (-1/+1), or -1 at that end. */
+static int card_next(int dir)
+{
+    for (int k = card_pos(S.cat) + dir; k >= 0 && k < CAT_COUNT; k += dir)
+        if (cat_shown(S.order[k]))
+            return S.order[k];
+    return -1;
+}
 /* The Files row: the storage and recent folders (two at most), then Save data, then Browse. */
 static int files_places(void) { return fm_place_count() < 2 ? fm_place_count() : 2; }
 
@@ -170,10 +205,10 @@ static void focus_card(int cat, int snap)
     if (!snap && cat != S.cat) sfx_play(SFX_CARD);
     S.cat = cat;
     int shown[CAT_COUNT], n = 0, at = 0;
-    for (int i = 0; i < CAT_COUNT; i++)
-        if (cat_shown(i)) {
-            if (i == cat) at = n;
-            shown[n++] = i;
+    for (int k = 0; k < CAT_COUNT; k++)
+        if (cat_shown(S.order[k])) {
+            if (S.order[k] == cat) at = n;
+            shown[n++] = S.order[k];
         }
     /* the window: as before, unless the focus walks off one end */
     if (at < S.card_first) S.card_first = at;
@@ -643,7 +678,7 @@ void ui_prefetch(void)
     if (umd_state() == UMD_GAME)
         thumbs_get(umd_entry());
     for (int c = 0; c < CAT_COUNT; c++) { /* every tab's Recent row: the first card shown, then the rest */
-        int v = s_cats[(S.cat + c) % CAT_COUNT].view;
+        int v = s_cats[S.order[(card_pos(S.cat) + c) % CAT_COUNT]].view;
         if (v < 0)
             continue;
         for (int i = 0; i < library_recent_count(v); i++)
@@ -655,6 +690,7 @@ void ui_init(void)
 {
     S.screen = SCR_HOME;
     spring_snap(&S.trans, 0);
+    order_load(); /* before the first focus_card: it lays the row out in this order */
     focus_card(CAT_GAMES, 1);
     spring_snap(&S.hl, 0);
     spring_snap(&S.scroll, 0);
@@ -707,10 +743,71 @@ static int is_playing(const Entry *e)
     return e && music_state() != MUSIC_STOPPED && music_now(&now) == 0 && !strcmp(now.path, e->path);
 }
 
+/* ------------------------------------------------- Arrange home menu */
+
+static void job_save_ini(void *arg) { globalcfg_save(); }
+
+/* From Settings: back on the home row with the focused card picked up. */
+void ui_arrange_home(void)
+{
+    S.screen = SCR_HOME;
+    spring_to(&S.trans, 0);
+    S.arranging = 1;
+    focus_card(S.cat == CAT_UMD ? card_next(1) : S.cat, 0); /* the disc stays where it is */
+}
+
+/* ✕ / ○: the order goes into xlt.ini (if it changed). */
+static void arrange_done(void)
+{
+    int o[ARRANGED];
+    char text[sizeof(g_cfg.home_order)];
+    S.arranging = 0;
+    for (int i = 0; i < ARRANGED; i++)
+        o[i] = S.order[i + 1] - CAT_HOMEBREW;
+    if (homeorder_format(o, s_card_keys, ARRANGED, text, sizeof(text)) < 0 || !strcmp(text, g_cfg.home_order))
+        return;
+    snprintf(g_cfg.home_order, sizeof(g_cfg.home_order), "%s", text);
+    bg_post(job_save_ini, NULL, 0);
+    toast("Home menu order saved");
+}
+
+/* home_input while arranging; every button is taken. L/R pick another card,
+ * ←/→ carry the focused one past its neighbour. */
+static int arrange_input(unsigned int p)
+{
+    if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+        int c = card_next(p & PSP_CTRL_LTRIGGER ? -1 : 1);
+        if (c > 0) focus_card(c, 0); /* not onto the UMD (c == CAT_UMD == 0) */
+        return 1;
+    }
+    if (p & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
+        int dir = p & PSP_CTRL_LEFT ? -1 : 1, pos = card_pos(S.cat);
+        int other = pos + dir >= 1 && pos + dir < CAT_COUNT ? S.order[pos + dir] : -1;
+        if (pos < 1 || other < 0 || homeorder_move(S.order + 1, ARRANGED, pos - 1, dir) < 0)
+            return 1; /* at an end (left of it is only the disc) */
+        /* the two swap places at once; their offsets start them where they were and spring to 0 */
+        spring_snap(&S.card_dx[S.cat], S.card_dx[S.cat].x - dir * (S.card[other].x + FX(CARD_GAP)));
+        spring_snap(&S.card_dx[other], S.card_dx[other].x + dir * (S.card[S.cat].x + FX(CARD_GAP)));
+        spring_to(&S.card_dx[S.cat], 0);
+        spring_to(&S.card_dx[other], 0);
+        sfx_play(SFX_MOVE);
+        focus_card(S.cat, 0); /* the window follows if the card walks off it */
+        return 1;
+    }
+    if (p & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE | PSP_CTRL_TRIANGLE | PSP_CTRL_START))
+        arrange_done();
+    return 1;
+}
+
 static int home_input(unsigned int p)
 {
-    if (p & PSP_CTRL_LTRIGGER && S.cat > 0 && cat_shown(S.cat - 1)) { focus_card(S.cat - 1, 0); return 1; }
-    if (p & PSP_CTRL_RTRIGGER && S.cat < CAT_COUNT - 1) { focus_card(S.cat + 1, 0); return 1; }
+    if (S.arranging)
+        return arrange_input(p);
+    if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+        int c = card_next(p & PSP_CTRL_LTRIGGER ? -1 : 1);
+        if (c >= 0) focus_card(c, 0);
+        return 1;
+    }
     if (S.cat == CAT_UMD) {
         int st = umd_state();
         if (p & PSP_CTRL_CROSS) {
@@ -791,8 +888,6 @@ static int home_input(unsigned int p)
     }
     return 0;
 }
-
-static void job_save_ini(void *arg) { globalcfg_save(); }
 
 static int list_input(unsigned int p)
 {
@@ -942,10 +1037,10 @@ int ui_update(const Input *in, int status_changed)
     }
     if (umd_poll()) { /* a disc went in or out: the UMD card grows (and takes the focus) or goes */
         int st = umd_state();
-        if (S.umd_seen == UMD_NONE && st != UMD_NONE)
+        if (S.umd_seen == UMD_NONE && st != UMD_NONE && !S.arranging) /* (arranging: the disc only shows up) */
             focus_card(CAT_UMD, 0);
         else if (!cat_shown(S.cat))
-            focus_card(CAT_HOMEBREW, 0);
+            focus_card(S.order[1], 0); /* the first card after the disc's place */
         else
             focus_card(S.cat, 0);
         S.umd_seen = st;
@@ -976,7 +1071,7 @@ int ui_update(const Input *in, int status_changed)
         } else if (cc_is_open() && cc_input(p)) {
         } else if (osk_is_open()) {
             osk_input(p); /* SELECT switches its layout */
-        } else if (p & PSP_CTRL_SELECT && !opts_is_open() && !menu_is_open()) {
+        } else if (p & PSP_CTRL_SELECT && !opts_is_open() && !menu_is_open() && !S.arranging) {
             cc_toggle();
         } else if (menu_is_open()) {
             menu_input(p);
@@ -1030,6 +1125,7 @@ int ui_update(const Input *in, int status_changed)
     for (int i = 0; i < CAT_COUNT; i++) {
         dirty |= step(&S.card[i]);
         dirty |= step(&S.card_a[i]);
+        dirty |= step(&S.card_dx[i]);
     }
     dirty |= step(&S.row_x);
     dirty |= step(&S.ring_x);
@@ -1358,32 +1454,53 @@ static void draw_art(const Entry *e, int x, int y, int w, int h, int r, int labe
         gfx_text_fit(FONT_SMALL, x + 6, y + h - gfx_line_h(FONT_SMALL) - 3, w - 12, e->title, C_WHITE);
 }
 
+/* Card i with its left edge at x (its size and fade from its springs). */
+static void draw_card(int i, int x)
+{
+    int s = spring_int(&S.card[i]);
+    int a = S.card_a[i].x;
+    if (a > 256) a = 256;
+    if (s < 2 || a <= 0 || x + s < 0 || x > SCREEN_W)
+        return;
+    int t = (S.card[i].x - FX(CARD_SMALL)) / (CARD_BIG - CARD_SMALL); /* Q8 0..256 */
+    int y = CARD_CY - s / 2;
+    u32 bg = color_lerp(C_SURFACE, C_ACCENT, t), fg = color_lerp(C_MUTED, C_WHITE, t);
+    gfx_rrect(x, y, s, s, s * 22 / 100, WITH_ALPHA(bg, a * 255 / 256));
+    int is = s * 56 / 100;
+    if (i == CAT_WEB)
+        web_draw_icon(WEB_ICON_GLOBE, x + (s - is) / 2, y + (s - is) / 2, is, is, WITH_ALPHA(fg, a * 255 / 256));
+    else
+        gfx_icon(s_cats[i].icon, x + (s - is) / 2, y + (s - is) / 2, is, is, WITH_ALPHA(fg, a * 255 / 256));
+}
+
 static void draw_cards(int ox)
 {
-    /* A card on its way in or out (the UMD) brings its gap with it. */
-    int x = spring_int(&S.row_x) + ox;
-    for (int i = 0; i < CAT_COUNT; i++) {
+    /* A card on its way in or out (the UMD) brings its gap with it. Left to
+     * right in the user's order; the card being arranged is drawn last, over
+     * the one it is sliding past. */
+    int x = spring_int(&S.row_x) + ox, lift_x = 0;
+    for (int k = 0; k < CAT_COUNT; k++) {
+        int i = S.order[k];
         int s = spring_int(&S.card[i]);
         if (s < 0) s = 0;
         int gap = s >= CARD_SMALL ? CARD_GAP : CARD_GAP * s / CARD_SMALL;
-        int a = S.card_a[i].x;
-        if (a > 256) a = 256;
-        if (s < 2 || a <= 0 || x + s < 0 || x > SCREEN_W) {
-            x += s + gap;
-            continue;
-        }
-        int t = (S.card[i].x - FX(CARD_SMALL)) / (CARD_BIG - CARD_SMALL); /* Q8 0..256 */
-        int y = CARD_CY - s / 2;
-        u32 bg = color_lerp(C_SURFACE, C_ACCENT, t), fg = color_lerp(C_MUTED, C_WHITE, t);
-        gfx_rrect(x, y, s, s, s * 22 / 100, WITH_ALPHA(bg, a * 255 / 256));
-        int is = s * 56 / 100;
-        if (i == CAT_WEB)
-            web_draw_icon(WEB_ICON_GLOBE, x + (s - is) / 2, y + (s - is) / 2, is, is, WITH_ALPHA(fg, a * 255 / 256));
-        else
-            gfx_icon(s_cats[i].icon, x + (s - is) / 2, y + (s - is) / 2, is, is, WITH_ALPHA(fg, a * 255 / 256));
+        int cx = x + FX_INT(S.card_dx[i].x); /* sliding to its new place after Arrange moved it */
+        if (S.arranging && i == S.cat) lift_x = cx;
+        else draw_card(i, cx);
         x += s + gap;
     }
-    gfx_text_center(FONT_BOLD, SCREEN_W / 2 + ox, CARD_LABEL_Y, s_cats[S.cat].name, C_TEXT);
+    if (S.arranging) {
+        draw_card(S.cat, lift_x);
+        int s = spring_int(&S.card[S.cat]);
+        gfx_ring(lift_x - 3, CARD_CY - s / 2 - 3, s + 6, s + 6, C_FOCUS); /* picked up */
+        char label[40];
+        int pos = card_pos(S.cat); /* an arrow each way it can still go, as on the rows ←/→ change */
+        snprintf(label, sizeof(label), "%s  %s  %s", pos > 1 ? "<" : " ", s_cats[S.cat].name,
+                 pos < CAT_COUNT - 1 ? ">" : " ");
+        gfx_text_center(FONT_BOLD, SCREEN_W / 2 + ox, CARD_LABEL_Y, label, C_TEXT);
+    } else {
+        gfx_text_center(FONT_BOLD, SCREEN_W / 2 + ox, CARD_LABEL_Y, s_cats[S.cat].name, C_TEXT);
+    }
 }
 
 static void draw_tile_row(int v, int ox)
@@ -1563,7 +1680,16 @@ static void draw_home(const SysStatus *st, int ox)
     } else {
         gfx_text_center(FONT_BODY, SCREEN_W / 2 + ox, 168, s_cats[S.cat].empty, C_MUTED);
     }
-    draw_footer(s_home_hints, COUNT(s_home_hints), ox);
+    if (S.arranging) {
+        static const Hint arrange_h[] = {
+            {-1, "Left/Right", 0, "Move"},
+            {-1, "L/R", 0, "Pick"},
+            {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Done"},
+        };
+        draw_footer(arrange_h, COUNT(arrange_h), ox);
+    } else {
+        draw_footer(s_home_hints, COUNT(s_home_hints), ox);
+    }
 }
 
 /* One grid tile: art (or a live preview where the ring is), a star for favorites. */

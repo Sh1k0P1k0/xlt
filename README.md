@@ -18,6 +18,16 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
 
+## New in 1.2.0
+
+- **Music equalizer.** Five bands (60 Hz to 12 kHz, ±12 dB) with presets: Bass, Treble, Vocal, Loudness and
+  your own Custom curve. START in Now Playing opens it; **Settings → Sound & Controls → Equalizer** picks a preset.
+  The song is turned down by the boost, so it never distorts.
+- **Arrange home menu.** Put the home menu's cards in the order you like: **Settings → XLT → Arrange home menu**,
+  then L/R pick a card, ←/→ carry it, ✕ puts it down. A UMD always comes first.
+- **Fixed:** the screensaver now works with the PSP's own backlight dimming: it no longer brightens a panel the
+  PSP has already dimmed, and one press wakes it after the backlight has turned off.
+
 ## New in 1.1.1
 
 - **Fixed:** PS1 and homebrew icons that aren't the usual 144×80 (PS1 icons are square) are no longer stretched
@@ -51,14 +61,15 @@ no warranty.
 ## What it does
 
 - **One row for everything.** Homebrew, Games, Music, Video, Pictures, Files, Web and Settings, plus the UMD drive
-  while a disc is in. Each card shows what you used last, and a game's animated icon or a video's preview plays
-  once you rest on it.
+  while a disc is in, in the order you pick (Settings → XLT → Arrange home menu). Each card shows what you used
+  last, and a game's animated icon or a video's preview plays once you rest on it.
 - **Games.** ISO, CSO, ZSO and EBOOT games, PS1 classics and homebrew, as a list or a grid of icons. Per game:
   CPU speed, ISO driver, favourites, your own folders, details, and delete. Games start through ARK as they do
   from the XMB. Hold **L** while XLT starts to skip the library check (safe start).
 - **Music.** MP3, AAC/M4A and FLAC by artist, album or playlist, with covers and lyrics. Shuffle, repeat, a sleep
   timer, and an even-volume mode that uses ReplayGain or Sound Check tags. It never makes anything louder, and
-  it respects AVLS. Music keeps playing while you browse.
+  it respects AVLS. A five-band equalizer with presets (START in Now Playing). Music keeps playing while you
+  browse.
 - **Video.** MP4 (H.264 and AAC) and PMF, with subtitles (`.srt` files or ones inside the MP4), several audio
   tracks, resume where you stopped, and the next episode in the folder.
 - **Pictures.** JPEG, PNG, BMP and GIF, with zoom.
@@ -162,7 +173,7 @@ L+R+START, which takes screenshots in games too.
 | Anywhere | HOME | Quit XLT? (Yes / No) |
 | Starting XLT | Hold L | Safe start: skip the library check |
 | Lists | ↑ / ↓, ← / → | Move, a page at a time |
-| Now Playing | ✕ / ← → / L R / △ / □ | Pause / previous, next / seek / shuffle / repeat |
+| Now Playing | ✕ / ← → / L R / △ / □ / START | Pause / previous, next / seek / shuffle / repeat / equalizer |
 | Video | ✕ / ← → / L R / △ / □ | Pause / 10 s back, ahead / 1 min / audio track / subtitles |
 | Files | ✕ / ○ / △ / □ | Open / up / menu / mark |
 | Reader | ✕ / L R / □ / △ | Next screen / page / find / menu |

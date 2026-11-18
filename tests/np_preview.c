@@ -61,6 +61,11 @@ void bg_post(void (*fn)(void *), const void *arg, int size) { (void)fn; (void)ar
 int img_decode(const char *p, int m, int w, int h, uint8_t *o, int *rw, int *rh) { (void)p; (void)m; (void)w; (void)h; (void)o; (void)rw; (void)rh; return -1; }
 int img_decode_at(const char *p, uint32_t off, int m, int w, int h, uint8_t *o, int *rw, int *rh) { (void)off; return img_decode(p, m, w, h, o, rw, rh); }
 void sfx_play(int id) { (void)id; }
+#include "../src/gamecfg.h"
+#ifndef NP_HAVE_CFG
+GlobalCfg g_cfg;
+#endif
+void globalcfg_save(void) { puts("xlt.ini saved"); }
 void ui_toast(const char *m) { printf("toast: %s\n", m); }
 void ui_open_music(void) {}
 int g_np_demo_ms; /* demo mode: the time playing */
@@ -190,6 +195,28 @@ int main(int argc, char **argv)
         N.e = s_song; /* the shown copy (no song change: the lyrics stay) */
         shot(dir, "np_2e_lyrics");             /* two lines */
     }
+    /* the equalizer: Off, a preset, then Custom made from it (Up twice on 1k) */
+    lrc_free(&N.lyr);
+    np_input(PSP_CTRL_START);
+    shot(dir, "np_5_eq_off");
+    np_input(PSP_CTRL_RTRIGGER); /* Bass */
+    shot(dir, "np_5b_eq_bass");
+    np_input(PSP_CTRL_RTRIGGER); np_input(PSP_CTRL_RTRIGGER); np_input(PSP_CTRL_RTRIGGER); /* Loudness */
+    np_input(PSP_CTRL_RIGHT); np_input(PSP_CTRL_RIGHT);
+    np_input(PSP_CTRL_UP); np_input(PSP_CTRL_UP);
+    if (g_cfg.eq_preset != EQ_CUSTOM || g_cfg.eq_custom[2] != 2 || g_cfg.eq_custom[0] != 6) {
+        printf("np_preview: Custom didn't start from Loudness (%d: %d %d)\n", g_cfg.eq_preset, g_cfg.eq_custom[0], g_cfg.eq_custom[2]);
+        return 1;
+    }
+    shot(dir, "np_5c_eq_custom");
+    for (int i = 0; i < 20; i++) np_input(PSP_CTRL_DOWN); /* down to -12, no further */
+    np_input(PSP_CTRL_LEFT); np_input(PSP_CTRL_LEFT); /* the 60 Hz band at the top edge: +12 */
+    for (int i = 0; i < 8; i++) np_input(PSP_CTRL_UP);
+    if (g_cfg.eq_custom[2] != -12 || g_cfg.eq_custom[0] != 12) { puts("np_preview: the bands don't stop at 12 dB"); return 1; }
+    shot(dir, "np_5d_eq_extremes");
+    np_input(PSP_CTRL_CIRCLE); /* closes the panel (and saves), Now Playing stays */
+    if (N.eq_open || !N.open) { puts("np_preview: Circle didn't close only the EQ"); return 1; }
+    shot(dir, "np_5e_eq_closed");
     s_state = MUSIC_STOPPED; s_gen++;
     shot(dir, "np_3_resume");
     s_resume = 0;

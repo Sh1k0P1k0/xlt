@@ -5,14 +5,14 @@
  * change a value (✕ steps it forward or runs an action), L/R switch
  * category, ○ goes back. Sections, in order:
  *
- *   XLT              start at boot (ARK's launcher setting), default ISO
+ *   XLT              home menu order, start at boot (ARK's launcher setting), default ISO
  *                      driver, removed entries, rescan, button test, USB sync
  *   Games              ARK: CPU speed, extra memory, caches, logos, UMD region,
  *                      Pause Game (Go)
  *   Plugins            every global line of ARK's PLUGINS.TXT files
  *   Power & Display    screensaver, battery percentage, USB charging, LEDs, backlight auto-off, auto sleep,
  *                      keeping the paused game (Go)
- *   Sound & Controls   AVLS, enter button, analog stick
+ *   Sound & Controls   equalizer, AVLS, enter button, analog stick
  *   Network            WPA2, ad hoc channel, Wi-Fi power save, MAC address
  *   System             language, date and time formats, time zone, summer
  *                      time, UMD drive
@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "eq.h"
 #include "settings.h"
 #include "sfx.h"
 #include "ui_internal.h"
@@ -70,9 +71,9 @@
 /* ------------------------------------------------------------------ model */
 
 enum { SRC_ARK, SRC_REG, SRC_PLUG, SRC_XLT, SRC_ACTION, SRC_INFO };
-enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC };
+enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ };
 static const char *const O_LEVEL[LEVEL_COUNT] = {"Off", "By song", "By album"};
-enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST };
+enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST, A_ARRANGE };
 static int s_clear_armed; /* ✕ once on Clear play history: the next ✕ clears */
 enum { C_XLT, C_GAMES, C_PLUGINS, C_POWER, C_SOUND, C_NETWORK, C_SYSTEM, C_ABOUT, C_COUNT };
 _Static_assert(C_COUNT == SETTINGS_SECTIONS, "settings.h's section count");
@@ -85,7 +86,7 @@ static const struct {
     {"Games", "CPU, memory, caches", ICON_GAMES},
     {"Plugins", "On, off, where they load", ICON_PLUGIN},
     {"Power & Display", "Screensaver, sleep, LEDs", ICON_SUN},
-    {"Sound & Controls", "AVLS, buttons, stick", ICON_VOLUME},
+    {"Sound & Controls", "Equalizer, AVLS, buttons", ICON_VOLUME},
     {"Network", "Wi-Fi, ad hoc", ICON_WIFI},
     {"System", "Language, date, time", ICON_SETTINGS},
     {"About", "Model, firmware, ARK", ICON_INFO},
@@ -203,7 +204,7 @@ static struct {
     int nplug;
     int reg[NREG], reg_ok[NREG];
     char nick[64];
-    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0;
+    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0, eq0;
     int recent_dirty;
     Spring knob;     /* the focused switch's knob, Q8: 0 off .. 256 on */
     int knob_id;     /* which row it belongs to, -1 none */
@@ -400,6 +401,8 @@ static void build(void)
     add(c, "Theme", "The colours of XLT. Changes at once, so you can look before you leave.", SRC_XLT, X_THEME);
     add(c, "Play the next video", "When a video ends, the next one in its folder starts after a few seconds "
         "(cancel with Circle).", SRC_XLT, X_AUTOPLAY);
+    add(c, "Arrange home menu", "Puts the home menu's cards in the order you like: L/R pick a card, Left/Right "
+        "move it, Cross saves. A UMD always comes first.", SRC_ACTION, A_ARRANGE);
     ark_item(c, AK_LAUNCHER, "Start XLT at boot",
              "ARK opens XLT instead of the XMB when the PSP starts.", O_OFFON, 2);
     Item *it = add(c, "Default ISO driver",
@@ -478,12 +481,15 @@ static void build(void)
 
     c = &s_cats[C_SOUND];
     c->name = SECTIONS[C_SOUND].name;
-    c->note = "Volume limiter and buttons.";
+    c->note = "Equalizer, volume limiter and buttons.";
     add(c, "Interface sounds", "Soft clicks and chimes as you move around XLT and start a game. They play "
         "over music and follow the PSP's volume.", SRC_XLT, X_SOUNDS);
     add(c, "Even out music volume", "Turns loud songs down to match quieter ones, from their ReplayGain or "
         "Sound Check tags. Never louder than without it; AVLS still limits the headphones after it.",
         SRC_XLT, X_LEVEL);
+    add(c, "Equalizer", "Shapes the music's sound: more bass, brighter highs, clearer voices. Custom sets "
+        "five bands yourself: press START in Now Playing. The whole song is turned down by the boost, "
+        "so it never distorts.", SRC_XLT, X_EQ);
     reg_items(c, C_SOUND);
     ark_item(c, AK_NOANALOG, "Disable analog stick", "Ignores the analog stick, for a worn one that drifts.",
              O_OFFON, 2);
@@ -605,6 +611,8 @@ static void item_value(const Item *it, char *out, int n)
         else if (it->key == X_USBSYNC)
             snprintf(out, n, "%s", !g_cfg.usb_sync ? "Off" : usbsync_talking() ? "On, PC connected"
                                    : usbsync_attached() ? "On, cable in" : "On");
+        else if (it->key == X_EQ)
+            snprintf(out, n, "%s", eq_preset_name(g_cfg.eq_preset));
         else if (it->key == X_LEVEL)
             snprintf(out, n, "%s", O_LEVEL[g_cfg.level >= 0 && g_cfg.level < LEVEL_COUNT ? g_cfg.level : 0]);
         else if (it->key == X_SAVER)
@@ -695,6 +703,8 @@ static void change(Item *it, int dir)
                 g_cfg.usb_sync = 0;
             }
         }
+        else if (it->key == X_EQ) /* the same: the player notices at its next block */
+            g_cfg.eq_preset = (g_cfg.eq_preset + dir + EQ_PRESETS) % EQ_PRESETS;
         else if (it->key == X_LEVEL) /* the playing song follows at its next block */
             g_cfg.level = (g_cfg.level + dir + LEVEL_COUNT) % LEVEL_COUNT;
         else if (it->key == X_SAVER)
@@ -744,6 +754,7 @@ void settings_open(void)
     S.sounds0 = g_cfg.ui_sounds;
     S.autoplay0 = g_cfg.autoplay;
     S.level0 = g_cfg.level;
+    S.eq0 = g_cfg.eq_preset;
     S.theme0 = g_cfg.theme;
     S.battery0 = g_cfg.battery_pct;
     S.usbsync0 = g_cfg.usb_sync;
@@ -786,7 +797,7 @@ static void close_settings(void)
     }
     if (g_cfg.iso_driver != S.driver0 || g_cfg.saver_min != S.saver0 || g_cfg.ui_sounds != S.sounds0 ||
         g_cfg.theme != S.theme0 || g_cfg.autoplay != S.autoplay0 || g_cfg.level != S.level0 ||
-        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || S.recent_dirty)
+        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || g_cfg.eq_preset != S.eq0 || S.recent_dirty)
         bg_post(job_save_ini, NULL, 0);
     S.recent_dirty = 0;
     S.open = 0;
@@ -831,6 +842,9 @@ static void run_action(Item *it)
         }
         close_settings();
         ui_open_removed();
+    } else if (it->key == A_ARRANGE) {
+        close_settings();
+        ui_arrange_home();
     } else if (it->key == A_SAVER) {
         saver_start();
 

@@ -26,6 +26,9 @@ typedef struct {
     Spring row_x;             /* where the row starts, px Q8 */
     int card_first;           /* first card in the window, counted among the shown ones */
     int umd_seen;             /* umd_state() at the last poll */
+    int order[CAT_COUNT];     /* the cards left to right: CAT_UMD, then the user's order (g_cfg.home_order) */
+    Spring card_dx[CAT_COUNT];  /* px Q8 off its place in the row: a card Arrange swapped slides over */
+    int arranging;            /* Arrange home menu: ←/→ carry the focused card, ✕/○ put it down and save */
     int tile[VIEW_COUNT + 4]; /* focused tile per row (+ Settings, Files, UMD, Web); == recent count means "All" */
     Spring ring_x, ring_w;
 

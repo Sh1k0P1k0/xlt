@@ -13,11 +13,11 @@ knob slides); an ARK setting that is on for some software only shows that next t
 
 | Section | Settings | Stored in |
 |---|---|---|
-| XLT | Theme, Play the next video, Start XLT at boot, default ISO driver, removed entries, rescan, clear play history, button test | ARK's `launcher` key; `cache/xlt.ini` |
+| XLT | Theme, Arrange home menu, Play the next video, Start XLT at boot, default ISO driver, removed entries, rescan, clear play history, button test | ARK's `launcher` key; `cache/xlt.ini` |
 | Games | CPU speed (Auto…333, ARK-5 up to 443 MHz), extra memory, Memory Stick cache, Inferno ISO cache, skip logos, UMD region, Disable Pause Game (Go) | `SETTINGS.TXT` |
 | Plugins | Every global line of ARK's `PLUGINS.TXT` files: Off, or where it loads (Always, All games, PSP games, Homebrew, PS1 games, XMB, Launcher, as arkMenu's runlevels); old plugin support (Go) | `PLUGINS.TXT` |
 | Power & Display | Screensaver (Off, 1, 2, 5, 10 min) and Show screensaver, USB charging, backlight auto-off, auto sleep, LEDs off, keep the paused game (Go) | `cache/xlt.ini`, `SETTINGS.TXT`, registry |
-| Sound & Controls | Interface sounds, even out music volume, AVLS, enter button (✕/○), disable analog stick | registry, `SETTINGS.TXT` |
+| Sound & Controls | Interface sounds, equalizer, even out music volume, AVLS, enter button (✕/○), disable analog stick | registry, `SETTINGS.TXT` |
 | Network | WPA2, ad hoc channel, Wi-Fi power save, hide MAC address | `SETTINGS.TXT`, registry |
 | System | Language, date format, time format, time zone, summer time, disable UMD drive | registry, `SETTINGS.TXT` |
 | About | Model, system software, ARK version, nickname, check for updates, Memory Stick free and used space | `cache/storage.txt` |
@@ -231,6 +231,12 @@ saved as `saver_minutes` in `cache/xlt.ini`), a lock-screen-style clock fades in
   it is fully in, the backlight eases down to half your brightness level over a second and comes straight back
   on wake, except when the firmware's backlight auto-off is due by then (setting a level could light the panel
   again). It doesn't start during full-screen video, and the time spent watching doesn't count as idle.
+- **The firmware's own dimming:** the PSP dims the panel itself after about a minute idle (level 32), turns it
+  off at the backlight auto-off, and lights it again at 32 on a press it keeps from XLT. The screensaver doesn't
+  dim a panel the firmware has already dimmed, wakes when the firmware relights the panel, and holds your level
+  for a few seconds after any wake (also from sleep). A press outside the screensaver puts your level back after
+  the firmware's dim, and a new dim never starts from a level an earlier one left behind
+  (`sysctl_brightness_last_set()`).
 - **Drawing:** `tools/bake_saver.py` bakes the digits (Noto Sans Light, 84 px, tabular, so the clock never shifts)
   into a 256×128 4444 texture, a 64×64 glow into an 8888 one (4-bit alpha showed rings when stretched over the
   screen), and a sine table, so the animation uses no floats. Both textures are read by the GE from main RAM.

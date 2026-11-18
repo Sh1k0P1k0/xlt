@@ -12,7 +12,7 @@ OBJS = src/main.o src/fatcount.o src/gamesfile.o src/gfx.o src/ui.o src/input.o 
        src/url.o src/html.o src/weblay.o src/net.o src/webfetch.o src/web.o src/clockfix.o \
        src/m3u.o src/musicsort.o src/playlists.o src/resume.o src/nowplaying.o src/ui_menus.o src/vplace.o src/srt.o \
        src/sfokey.o src/savedata.o src/pathmap.o src/lrc.o src/safestart.o src/zip.o src/btntest.o src/quitdlg.o src/updparse.o src/update.o src/flac.o src/audiofmt.o src/avi.o src/recjpeg.o src/recorder.o \
-       src/shotplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o
+       src/shotplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o src/eq.o src/homeorder.o
 
 INCDIR = src build plugin/xltsync
 # -MMD -MP: the compiler lists every header each .o includes (src/*.d), so a changed

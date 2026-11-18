@@ -85,6 +85,14 @@ have **Delete from library** there).
 Delete never touches a scanned folder itself (`ISO/`, `PSP/GAME/`), anything outside them, or XLT's own
 folder; `del_target()` in `src/delpath.c` decides, and `tests/test_delpath.c` covers it.
 
+## Home menu order
+
+**Settings → XLT → Arrange home menu** goes back to the home row with the focused card picked up: L/R pick a
+card, ←/→ carry it past its neighbour (it slides over), ✕ or ○ put it down. The order is kept in `xlt.ini` as
+`home_order=games,homebrew,...` and read at boot; names it doesn't know are skipped, and cards it doesn't name go
+at the end (`src/homeorder.c`, host-tested in `tests/test_homeorder.c`). A UMD always comes first, ahead of the
+order, and can't be picked or passed.
+
 ## UMD
 
 When a disc is in the drive, a **UMD** card grows in before Homebrew and takes the focus (it goes again

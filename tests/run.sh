@@ -100,8 +100,12 @@ build/test_resume
 # The Now Playing screen through the software GE (memory errors; frames in build/np_frames/ are for looking at).
 mkdir -p build/np_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-unused-variable \
-   -fsanitize=address,undefined -Itests/host -Isrc -Ibuild -o build/np_preview tests/np_preview.c src/resume.c src/lrc.c src/textenc.c src/id3.c src/audiofmt.c src/flac.c src/mp4.c -lm
+   -fsanitize=address,undefined -Itests/host -Isrc -Ibuild -o build/np_preview tests/np_preview.c src/eq.c src/resume.c src/lrc.c src/textenc.c src/id3.c src/audiofmt.c src/flac.c src/mp4.c -lm
 build/np_preview build/np_frames
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_eq tests/test_eq.c src/eq.c -lm
+build/test_eq
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_homeorder tests/test_homeorder.c src/homeorder.c
+build/test_homeorder
 # The lists and sheets (real ui.c, opts.c, menu.c) over a made-up library, driven by button presses:
 # memory errors fail the run; the frames in build/ui_frames/ are for looking at.
 mkdir -p build/ui_frames
@@ -109,7 +113,7 @@ cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-
    -Wno-unused-variable -Wno-missing-field-initializers -Wno-sign-compare -fsanitize=address,undefined \
    -Itests/host -Isrc -Ibuild -o build/ui_preview tests/ui_preview.c tests/host/ui_stubs.c \
    src/ui.c src/ui_menus.c src/opts.c src/menu.c src/groups.c src/musicsort.c src/mbrowse.c src/resume.c \
-   src/thumbconv.c src/imgdecode.c src/disc.c -ljpeg -lpng -lgif -lz -llz4 -lm
+   src/thumbconv.c src/imgdecode.c src/disc.c src/homeorder.c -ljpeg -lpng -lgif -lz -llz4 -lm
 build/ui_preview build/ui_frames
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_vplace tests/test_vplace.c src/vplace.c
 build/test_vplace
@@ -187,7 +191,7 @@ build/quitdlg_preview build/quitdlg_frames
 mkdir -p build/settings_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
    -Wno-unused-variable -Wno-format-truncation -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
-   -o build/settings_preview tests/settings_preview.c -lm
+   -o build/settings_preview tests/settings_preview.c src/eq.c -lm
 build/settings_preview build/settings_frames
 # The control center (real cc.c) and its power dialog growing out of the Power tile; frames in build/cc_frames/.
 mkdir -p build/cc_frames

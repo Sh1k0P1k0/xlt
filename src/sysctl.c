@@ -232,11 +232,17 @@ int sysctl_brightness_hw(void)
     return kuKernelCall(s_light_get, &a) < 0 ? -1 : level;
 }
 
+static int s_set_hw = -1;
+int sysctl_brightness_last_set(void) { return s_set_hw; }
+
 int sysctl_brightness_set(int pct)
 {
     if (!s_light_set || pct < 0 || pct > 100)
         return -1;
-    return kcall(s_light_set, (u32)brightness_to_hw(pct), 0) < 0 ? -1 : 0;
+    if (kcall(s_light_set, (u32)brightness_to_hw(pct), 0) < 0)
+        return -1;
+    s_set_hw = brightness_to_hw(pct);
+    return 0;
 }
 
 /* -------------------------------------------------------------------- usb */

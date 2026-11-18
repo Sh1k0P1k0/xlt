@@ -8,6 +8,13 @@
  *   - once it has faded in, the backlight eases down to half the user's level,
  *     and comes back at once on wake; not when the firmware's own backlight
  *     auto-off is due by then (setting the level could light the panel again);
+ *     after a wake the level is held for a few seconds, since the firmware can
+ *     put the dimmed level back when it relights the panel or wakes from sleep,
+ *     and the next dim starts from the remembered level, never a dimmed one;
+ *   - the firmware dims the panel itself after about a minute idle (level 32)
+ *     and turns it off at the backlight auto-off: XLT doesn't dim a panel the
+ *     firmware has already dimmed, and when the firmware lights it again after
+ *     auto-off (it keeps that press) the screensaver wakes as if pressed;
  *   - the PSP's own date and time formats are used (read from the registry on
  *     the background worker each time it starts).
  * The press that wakes it is eaten, and so is that button's auto-repeat until
@@ -24,6 +31,7 @@
 #include "viewer.h"
 #include "sysctl.h"
 #include "video.h"
+#include "cc.h"
 
 #define BUTTONS (PSP_CTRL_SELECT | PSP_CTRL_START | PSP_CTRL_UP | PSP_CTRL_RIGHT | PSP_CTRL_DOWN | PSP_CTRL_LEFT | \
                  PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_TRIANGLE | PSP_CTRL_CIRCLE | PSP_CTRL_CROSS |     \
@@ -46,8 +54,14 @@ static struct {
     int wday, day, month, year;
     int dim_from;       /* backlight % before dimming, -1 = not dimmed */
     int dim_step;
+    int dim_hw;         /* panel level the last dim step set, -1 = none */
+    int orig;           /* the level before that dim (for g_cfg.brightness == -1) */
+    int hold_pct;       /* level to keep after a wake... */
+    int hold;           /* ...for this many more frames */
     int shown;          /* frames fully shown, for the hint */
-} S = {.dim_from = -1, .last_min = -1};
+} S = {.dim_from = -1, .last_min = -1, .dim_hw = -1, .orig = -1};
+
+#define HOLD_FRAMES (4 * 60)
 
 static volatile int s_resumed;
 
@@ -75,12 +89,62 @@ void saver_start(void)
     S.shown = 0;
 }
 
+/* Back to the user's level: from XLT's dim, and also from the firmware's own
+ * (it dims the panel after a minute idle and lights it dim after auto-off). */
 static void undim(void)
 {
-    if (S.dim_from < 0)
+    int pct = g_cfg.brightness >= 0 ? g_cfg.brightness : S.dim_from;
+    if (pct < 0)
         return;
-    sysctl_brightness_set(g_cfg.brightness >= 0 ? g_cfg.brightness : S.dim_from);
+    S.hold_pct = pct;
+    S.hold = HOLD_FRAMES;
+    sysctl_brightness_set(S.hold_pct);
     S.dim_from = -1;
+}
+
+/* After a wake: put the level back if something (the firmware relighting the
+ * panel, or coming back from sleep) changed it. Not while the control center
+ * is open, where the user may be moving the slider. */
+static void hold_level(void)
+{
+    if (S.hold <= 0)
+        return;
+    if (cc_is_open()) {
+        S.hold = 0;
+        return;
+    }
+    if (--S.hold % 15 == 0) {
+        int now = sysctl_brightness_hw();
+        if (now >= 0 && now != brightness_to_hw(S.hold_pct))
+            sysctl_brightness_set(S.hold_pct);
+    }
+}
+
+/* Returns 1 when the firmware has just lit the panel again after its backlight
+ * auto-off (level 0 -> its dim level). The press that did it never reaches XLT. */
+static int watch_level(void)
+{
+    static int last_hw = -2, tick;
+    if (++tick % 6)
+        return 0;
+    int hw = sysctl_brightness_hw();
+    if (hw == last_hw)
+        return 0;
+    int was = last_hw;
+    last_hw = hw;
+    return was == 0 && hw > 0 && hw != sysctl_brightness_last_set();
+}
+
+/* The level a new dim starts from. A level still at what the last dim set
+ * (the restore didn't take) is not the user's: use the one from before it. */
+static int level_before_dim(void)
+{
+    if (g_cfg.brightness >= 0)
+        return g_cfg.brightness;
+    int hw = sysctl_brightness_hw();
+    if (S.dim_hw >= 0 && hw == S.dim_hw && S.orig >= 0)
+        return S.orig;
+    return sysctl_brightness_get();
 }
 
 static void wake(void)
@@ -107,10 +171,28 @@ int saver_update(Input *in)
     if (s_resumed) { /* back from sleep: show what was open */
         s_resumed = 0;
         S.idle = 0;
+        if (S.phase == IN || S.phase == ON)
+            wake(); /* restores and holds the level; the firmware's own comes back for a moment */
+    }
+    hold_level();
+    if (watch_level()) { /* a press woke the panel; the firmware kept it */
         if (S.phase == IN || S.phase == ON) {
-            S.dim_from = -1; /* the control center re-applies the user's level */
+            S.eat = 1;
+            S.idle = 0;
             wake();
+            return 1;
         }
+        if (g_cfg.brightness >= 0 && !cc_is_open())
+            sysctl_brightness_set(g_cfg.brightness);
+    }
+
+    /* A press outside the screensaver with the panel not at the user's level
+     * (the firmware's own dimming, or a restore that didn't take): put it back. */
+    if (pressed && S.phase == OFF && S.hold <= 0 && g_cfg.brightness >= 0 && !cc_is_open() &&
+        sysctl_brightness_available()) {
+        int now = sysctl_brightness_hw();
+        if (now >= 0 && now != brightness_to_hw(g_cfg.brightness))
+            sysctl_brightness_set(g_cfg.brightness);
     }
 
     switch (S.phase) {
@@ -151,11 +233,27 @@ int saver_update(Input *in)
     if (S.phase == ON && S.dim_step < DIM_STEPS && S.t % DIM_EVERY == 0 && sysctl_brightness_available()) {
         if (S.dim_step == 0) {
             int dark = system_backlight_off() > 0 && S.idle + 2 * 60 >= (unsigned)system_backlight_off() * 60u;
-            S.dim_from = dark ? -1 : g_cfg.brightness >= 0 ? g_cfg.brightness : sysctl_brightness_get();
+            S.dim_from = dark ? -1 : level_before_dim();
+            S.hold = 0;
+            /* Only from the user's level: the firmware may have dimmed it lower already
+             * (then XLT's "dim" would make it brighter), or turned it off. */
+            int now = sysctl_brightness_hw();
+            int theirs = S.dim_from >= 0 && now != brightness_to_hw(S.dim_from);
+            if (theirs) {
+                S.dim_from = -1;
+                S.dim_step = DIM_STEPS;
+            }
+        } else if (S.dim_hw >= 0 && sysctl_brightness_hw() != S.dim_hw) { /* the firmware changed it */
+            S.dim_step = DIM_STEPS; /* dim_from stays: waking restores the user's level */
         }
-        if (S.dim_from > 0) {
+        if (S.dim_step >= DIM_STEPS) {
+            /* stopped above */
+        } else if (S.dim_from > 0) {
             S.dim_step++;
-            sysctl_brightness_set(S.dim_from - S.dim_from / 2 * S.dim_step / DIM_STEPS);
+            int pct = S.dim_from - S.dim_from / 2 * S.dim_step / DIM_STEPS;
+            sysctl_brightness_set(pct);
+            S.orig = S.dim_from;
+            S.dim_hw = brightness_to_hw(pct);
         } else {
             S.dim_from = -1;
             S.dim_step = DIM_STEPS; /* at the lowest level already, unknown, or the panel goes dark anyway */

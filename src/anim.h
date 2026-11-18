@@ -7,7 +7,7 @@
 #ifndef ANIM_H
 #define ANIM_H
 
-#define FX(n) ((n) << 8)
+#define FX(n) ((n) * 256) /* (not << 8: negative n is fine too) */
 #define FX_INT(x) (((x) + 128) >> 8)
 
 typedef struct {

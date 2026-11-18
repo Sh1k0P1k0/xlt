@@ -42,6 +42,7 @@ void sfx_play(int id) { (void)id; }
 void ui_toast(const char *m) { printf("toast: %s\n", m); }
 void ui_library_changed(void) {}
 void ui_open_removed(void) {}
+void ui_arrange_home(void) {}
 void ui_draw_status_bar(const char *t, const SysStatus *st) { (void)st; gfx_text(FONT_SMALL, 12, 5, t, C_MUTED); }
 void format_size(char *b, int n, uint64_t bytes)
 {
