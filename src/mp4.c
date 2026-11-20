@@ -470,6 +470,29 @@ int mp4_sub_read(const char *path, const int *order, int n, Mp4SubDone done, voi
     return did;
 }
 
+/* The first edit that isn't empty: where the audio starts (the encoder's priming)
+ * and how long it plays, in the track's timescale. */
+static void audio_edit(const Box *trak, Mp4 *m, uint32_t timescale)
+{
+    Box edts, elst;
+    m->audio_edit_skip = -1;
+    m->audio_edit_len = 0;
+    if (child(trak, "edts", 0, &edts) || child(&edts, "elst", 0, &elst) || elst.n < 8)
+        return;
+    int v1 = elst.p[0] == 1, sz = v1 ? 20 : 12;
+    uint32_t n = be32(elst.p + 4);
+    for (uint32_t i = 0; i < n && 8 + (uint64_t)(i + 1) * sz <= elst.n; i++) {
+        const uint8_t *e = elst.p + 8 + i * sz;
+        uint64_t dur = v1 ? be64(e) : be32(e);
+        int64_t at = v1 ? (int64_t)be64(e + 8) : (int64_t)(int32_t)be32(e + 4);
+        if (at < 0)
+            continue; /* an empty edit (a delay before the track) */
+        m->audio_edit_skip = at;
+        m->audio_edit_len = m->movie_ts ? dur * timescale / m->movie_ts : 0;
+        return;
+    }
+}
+
 /* audio: the index of the AAC track to load (in the order they're met), -2 = list only. */
 static void parse_trak(const Box *trak, Mp4 *m, int audio)
 {
@@ -510,6 +533,7 @@ static void parse_trak(const Box *trak, Mp4 *m, int audio)
         if (audio == m->naudio && !m->audio.present) {
             if (parse_tables(&stbl, &m->audio) == 0) {
                 m->audio.timescale = timescale;
+                audio_edit(trak, m, timescale);
                 m->sample_rate = a.sample_rate;
                 m->channels = a.channels;
                 m->aac_object = a.aac_object;
@@ -573,6 +597,7 @@ static int open_common(Mp4 *m, const char *path, const char **why, int audio_onl
         uint32_t ts = b.p[0] == 1 ? be32(b.p + 20) : be32(b.p + 12);
         uint64_t d = b.p[0] == 1 ? be64(b.p + 24) : be32(b.p + 16);
         m->duration_ms = ts ? (uint32_t)(d * 1000 / ts) : 0;
+        m->movie_ts = ts;
     }
     /* First the list of audio tracks, then the chosen one with its tables. */
     uint64_t q = 0;

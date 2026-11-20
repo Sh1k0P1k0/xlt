@@ -11,6 +11,7 @@
 #include "usbsync.h"
 #include "btntest.h"
 #include "quitdlg.h"
+#include "dumpdlg.h"
 #include "ui.h"
 #include "ui_internal.h"
 #include "sysctl.h"
@@ -2198,6 +2199,7 @@ overlays:
     cc_draw(st);
     cc_usb_draw(st); /* fading in or out */
     btntest_draw(st); /* fading in or out */
+    dumpdlg_draw();   /* copying the UMD */
     quitdlg_draw();   /* HOME */
     draw_toast();
     boot_draw(); /* fading into the launcher */

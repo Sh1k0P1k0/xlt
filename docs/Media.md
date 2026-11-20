@@ -54,8 +54,20 @@ The **Music** card lists the songs in `MUSIC/` (and two levels of subfolders, e.
   `REPLAYGAIN_*`, M4A `----` items) or iTunes Sound Check (`iTunNORM`, MP3 `COMM` or M4A). By album uses the
   album's gain, so its quiet and loud songs stay apart; each mode falls back on the other, then on Sound Check.
   It only ever turns a song down: the tags aim about 6 dB below most music, so 6 dB is added first and anything
-  above 0 dB plays as it is. The cut is the SRC channel's volume, before the PSP's own volume and AVLS, which
-  still apply as before; songs without tags are untouched. A change applies to the playing song at once.
+  above 0 dB plays as it is. The cut is a gain on the song's own samples (so two songs can be mixed), before
+  the PSP's own volume and AVLS, which still apply as before; songs without tags are untouched. A change
+  applies to the playing song at once.
+- **Gapless:** songs run into each other with no gap. The next one is opened about 10 s before it is needed
+  (on its own thread), and the encoder's padding is left out: LAME's tag (also written by ffmpeg), iTunes'
+  `iTunSMPB`, or the M4A's edit list; FLAC has none. A song at another sample rate than the one playing is
+  resampled until the next skip, seek or new list, which opens the output at its own rate again.
+- **Crossfade:** **Settings → Sound & Controls → Crossfade** (Off, 2, 4, 6, 8 or 10 s; `crossfade` in
+  `xlt.ini`, Off at first) fades the next song in over the end of the last one, with equal-power curves.
+  Songs that follow on from each other on one album (the same album tag and the next track number) are still
+  joined without a fade; songs without an album tag always fade. Repeat one loops without a fade, and a skip
+  or seek cuts as before. `src/gapless.c` (padding, resampler, mixing, the album rule) is host-tested in
+  `tests/test_gapless.c` against files made by LAME and ffmpeg (`tests/make_gapless.sh`); `cache/video.log`
+  gets a line per song with the frames decoded and played and the padding cut.
 - **Carrying on:** XLT remembers the list and the place. START carries on when nothing is playing.
 
 The player (`src/music.c`) runs on a thread above the UI and sends everything through the SRC channel, which

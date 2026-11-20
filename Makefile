@@ -12,7 +12,7 @@ OBJS = src/main.o src/fatcount.o src/gamesfile.o src/gfx.o src/ui.o src/input.o 
        src/url.o src/html.o src/weblay.o src/net.o src/webfetch.o src/web.o src/clockfix.o \
        src/m3u.o src/musicsort.o src/playlists.o src/resume.o src/nowplaying.o src/ui_menus.o src/vplace.o src/srt.o \
        src/sfokey.o src/savedata.o src/pathmap.o src/lrc.o src/safestart.o src/zip.o src/btntest.o src/quitdlg.o src/updparse.o src/update.o src/flac.o src/audiofmt.o src/avi.o src/recjpeg.o src/recorder.o \
-       src/shotplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o src/eq.o src/homeorder.o
+       src/shotplug.o src/castplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o src/eq.o src/homeorder.o src/dumpname.o src/umddump.o src/dumpdlg.o src/gapless.o
 
 INCDIR = src build plugin/xltsync
 # -MMD -MP: the compiler lists every header each .o includes (src/*.d), so a changed
@@ -67,6 +67,17 @@ build/xltshot_data.h: plugin/xltshot/xltshot.prx tools/bake_bin.py
 	python3 -I tools/bake_bin.py $< xltshot_prx $@
 src/shotplug.o: build/xltshot_data.h
 EXTRA_CLEAN += build/xltshot_data.h plugin/xltshot/xltshot.prx plugin/xltshot/xltshot.elf plugin/xltshot/*.o
+
+# XLT Cast: the game on the PC over USB, a kernel PRX carried inside XLT, which installs
+# it and switches its PLUGINS.TXT line with Settings > XLT > XLT Cast (src/castplug.c).
+XLTCAST_SRC = plugin/xltcast/main.c plugin/xltcast/xltcast.h plugin/xltcast/Makefile
+plugin/xltcast/xltcast.prx: $(XLTCAST_SRC)
+	$(MAKE) -C plugin/xltcast
+build/xltcast_data.h: plugin/xltcast/xltcast.prx tools/bake_bin.py
+	@mkdir -p build
+	python3 -I tools/bake_bin.py $< xltcast_prx $@
+src/castplug.o: build/xltcast_data.h
+EXTRA_CLEAN += build/xltcast_data.h plugin/xltcast/xltcast.prx plugin/xltcast/xltcast.elf plugin/xltcast/*.o
 
 # The USB sync link: a kernel PRX carried inside XLT, which writes it to its own folder
 # and loads it while sync is on (src/usbsync.c).

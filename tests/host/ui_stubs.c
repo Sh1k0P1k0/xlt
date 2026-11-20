@@ -103,6 +103,8 @@ void btntest_draw(const SysStatus *st) { }
 int btntest_is_open(void) { return 0; }
 void quitdlg_draw(void) { }
 int quitdlg_is_open(void) { return 0; }
+void dumpdlg_draw(void) { }
+void dumpdlg_open(const Entry *disc) { (void)disc; }
 int search_covers(void) { return 0; }
 void search_draw(const SysStatus *st) { }
 int search_input(unsigned int pressed) { return 0; }

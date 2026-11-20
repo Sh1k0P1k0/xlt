@@ -18,6 +18,18 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
 
+## New in 1.3.0
+
+- **XLT Cast: your game on the PC.** The game you're playing on the PSP shows live in
+  [XLT Tool](https://github.com/boubounokefalos/xlt-tool) on your PC, with its sound, over the USB cable. Turn on
+  **Settings → XLT → XLT Cast**, then in a game, with the cable in, **L+R+SELECT** starts or stops it (HOME stops
+  it too). Most games come through at full speed (30 fps) without slowing down on the PSP.
+- **Gapless music and crossfades.** Albums play with no gap between songs, and **Settings → Sound & Controls →
+  Crossfade** (2 to 10 s) fades one song into the next. Songs that run on from each other on an album are still
+  joined without a fade.
+- **Copy a UMD to the Memory Stick.** △ on the UMD card → **Copy to Memory Stick** makes an ISO in `ISO/`, with
+  progress and time left. A copy that is stopped or fails is deleted, never left half-made.
+
 ## New in 1.2.0
 
 - **Music equalizer.** Five bands (60 Hz to 12 kHz, ±12 dB) with presets: Bass, Treble, Vocal, Loudness and
@@ -65,10 +77,10 @@ no warranty.
   last, and a game's animated icon or a video's preview plays once you rest on it.
 - **Games.** ISO, CSO, ZSO and EBOOT games, PS1 classics and homebrew, as a list or a grid of icons. Per game:
   CPU speed, ISO driver, favourites, your own folders, details, and delete. Games start through ARK as they do
-  from the XMB. Hold **L** while XLT starts to skip the library check (safe start).
+  from the XMB, and a UMD can be copied to the Memory Stick as an ISO. Hold **L** while XLT starts to skip the library check (safe start).
 - **Music.** MP3, AAC/M4A and FLAC by artist, album or playlist, with covers and lyrics. Shuffle, repeat, a sleep
   timer, and an even-volume mode that uses ReplayGain or Sound Check tags. It never makes anything louder, and
-  it respects AVLS. A five-band equalizer with presets (START in Now Playing). Music keeps playing while you
+  it respects AVLS. A five-band equalizer with presets (START in Now Playing), gapless albums and crossfades. Music keeps playing while you
   browse.
 - **Video.** MP4 (H.264 and AAC) and PMF, with subtitles (`.srt` files or ones inside the MP4), several audio
   tracks, resume where you stopped, and the next episode in the folder.
@@ -89,6 +101,8 @@ no warranty.
   on your PC sends files straight into XLT's folders while XLT keeps running, and the library updates by itself.
   A file is only put in place once it has arrived whole and checked, so a pulled cable leaves nothing
   half-written. USB mode is still there for a file manager.
+- **XLT Cast.** With **Settings → XLT → XLT Cast** on, L+R+SELECT in a game shows it live in XLT Tool on your PC,
+  with its sound, over the USB cable.
 - **Play time.** The screenshot plugin also counts how long each game runs (not while the PSP sleeps), PS1
   games included; XLT adds it to the game's details and to the **Most played** sort.
 - **Settings.** XLT's own options, ARK's settings and plugins, and the PSP's system settings in one place.

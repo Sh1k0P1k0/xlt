@@ -15,6 +15,8 @@
 int usbsync_active(void) { return 0; }
 int usbsync_start(void) { return -1; }
 void usbsync_stop(void) {}
+static int s_cast_calls, s_cast_last = -1;
+void castplug_apply(int on) { s_cast_calls++; s_cast_last = on; }
 const char *usbsync_error(void) { return ""; }
 int usbsync_attached(void) { return 0; }
 int usbsync_talking(void) { return 0; }
@@ -330,6 +332,71 @@ int main(int argc, char **argv)
             shot("upd_10_failed");
             settings_input(PSP_CTRL_CIRCLE);
             CHECK(!s_upd_open, "○ didn't close the failure");
+        }
+    }
+
+    { /* Sound > Crossfade: Off -> 2 -> ... -> 10 s -> Off, saved to xlt.ini when Settings closes */
+        settings_open();
+        frames(40);
+        if (S.col == 1) settings_input(PSP_CTRL_CIRCLE);
+        for (int i = 0; i < C_COUNT && S.cat != C_SOUND; i++) settings_input(PSP_CTRL_DOWN);
+        CHECK(S.cat == C_SOUND, "didn't reach Sound (at %d)", S.cat);
+        settings_input(PSP_CTRL_CROSS);
+        Cat *snd = &s_cats[C_SOUND];
+        int row = -1;
+        for (int i = 0; i < snd->n; i++)
+            if (!strcmp(snd->items[i].label, "Crossfade")) row = i;
+        CHECK(row >= 0, "no Crossfade row in Sound");
+        if (row >= 0) {
+            S.sel[C_SOUND] = row;
+            if (S.top[C_SOUND] > row) S.top[C_SOUND] = row;
+            if (row >= S.top[C_SOUND] + VISIBLE) S.top[C_SOUND] = row - VISIBLE + 1;
+            g_cfg.crossfade = 0;
+            char v[32];
+            item_value(&snd->items[row], v, sizeof(v));
+            CHECK(!strcmp(v, "Off"), "crossfade off reads \"%s\"", v);
+            for (int i = 0; i < 3; i++) settings_input(PSP_CTRL_RIGHT);
+            item_value(&snd->items[row], v, sizeof(v));
+            CHECK(g_cfg.crossfade == 6 && !strcmp(v, "6 s"), "three steps right: %d (\"%s\")", g_cfg.crossfade, v);
+            frames(20);
+            shot("snd_0_crossfade_6s");
+            for (int i = 0; i < 4; i++) settings_input(PSP_CTRL_RIGHT);
+            CHECK(g_cfg.crossfade == 2, "past 10 s it should wrap to Off, then 2 s: %d", g_cfg.crossfade);
+            settings_input(PSP_CTRL_LEFT);
+            settings_input(PSP_CTRL_LEFT);
+            CHECK(g_cfg.crossfade == 10, "left from 2 s: Off, then 10 s: %d", g_cfg.crossfade);
+            g_cfg.crossfade = 0;
+        }
+    }
+
+    { /* XLT > XLT Cast: Off -> On installs and switches the plugin (castplug_apply) */
+        if (S.col == 1) settings_input(PSP_CTRL_CIRCLE);
+        for (int i = 0; i < C_COUNT && S.cat != C_XLT; i++) settings_input(PSP_CTRL_UP);
+        CHECK(S.cat == C_XLT, "didn't reach XLT (at %d)", S.cat);
+        settings_input(PSP_CTRL_CROSS);
+        Cat *x = &s_cats[C_XLT];
+        int row = -1;
+        for (int i = 0; i < x->n; i++)
+            if (x->items[i].src == SRC_XLT && x->items[i].key == X_CAST) row = i;
+        CHECK(row >= 0, "no XLT Cast row in XLT");
+        if (row >= 0) {
+            S.sel[C_XLT] = row;
+            if (S.top[C_XLT] > row) S.top[C_XLT] = row;
+            if (row >= S.top[C_XLT] + VISIBLE) S.top[C_XLT] = row - VISIBLE + 1;
+            g_cfg.cast = 0;
+            char v[32];
+            item_value(&x->items[row], v, sizeof(v));
+            CHECK(!strcmp(v, "Off"), "cast off reads \"%s\"", v);
+            settings_input(PSP_CTRL_RIGHT);
+            item_value(&x->items[row], v, sizeof(v));
+            CHECK(g_cfg.cast == 1 && !strcmp(v, "On") && s_cast_calls == 1 && s_cast_last == 1,
+                  "turned on: cast %d (\"%s\"), %d calls, last %d", g_cfg.cast, v, s_cast_calls, s_cast_last);
+            frames(20);
+            shot("cast_0_on");
+            settings_input(PSP_CTRL_RIGHT); /* already on: right does nothing */
+            CHECK(s_cast_calls == 1, "right on an On switch changed it (%d calls)", s_cast_calls);
+            settings_input(PSP_CTRL_LEFT);
+            CHECK(g_cfg.cast == 0 && s_cast_calls == 2 && s_cast_last == 0, "off again: %d, last %d", g_cfg.cast, s_cast_last);
         }
     }
 

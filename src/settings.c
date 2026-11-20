@@ -54,6 +54,7 @@
 #include "update.h"
 #include "btntest.h"
 #include "usbsync.h"
+#include "castplug.h"
 
 #define FOOTER_Y 248
 #define TOP_Y 32
@@ -71,7 +72,7 @@
 /* ------------------------------------------------------------------ model */
 
 enum { SRC_ARK, SRC_REG, SRC_PLUG, SRC_XLT, SRC_ACTION, SRC_INFO };
-enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ };
+enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ, X_XFADE, X_CAST };
 static const char *const O_LEVEL[LEVEL_COUNT] = {"Off", "By song", "By album"};
 enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST, A_ARRANGE };
 static int s_clear_armed; /* ✕ once on Clear play history: the next ✕ clears */
@@ -204,7 +205,7 @@ static struct {
     int nplug;
     int reg[NREG], reg_ok[NREG];
     char nick[64];
-    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0, eq0;
+    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0, cast0, eq0, xfade0;
     int recent_dirty;
     Spring knob;     /* the focused switch's knob, Q8: 0 off .. 256 on */
     int knob_id;     /* which row it belongs to, -1 none */
@@ -422,6 +423,10 @@ static void build(void)
     add(c, "USB sync", "With the cable in, the PC can send files while you use XLT (for now with "
         "tools/xltlink.py). The library updates by itself. USB mode still works: sync pauses meanwhile.",
         SRC_XLT, X_USBSYNC);
+    if (ark)
+        add(c, "XLT Cast", "Shows your game on the PC, with sound (XLT Tool's Cast). In a game, cable in: "
+            "L+R+SELECT starts or stops it, HOME stops it.",
+            SRC_XLT, X_CAST);
 
     c = &s_cats[C_GAMES];
     c->name = SECTIONS[C_GAMES].name;
@@ -490,6 +495,9 @@ static void build(void)
     add(c, "Equalizer", "Shapes the music's sound: more bass, brighter highs, clearer voices. Custom sets "
         "five bands yourself: press START in Now Playing. The whole song is turned down by the boost, "
         "so it never distorts.", SRC_XLT, X_EQ);
+    add(c, "Crossfade", "Fades the next song in over the end of the last one. Songs that follow on from each "
+        "other on an album still run straight into each other.",
+        SRC_XLT, X_XFADE);
     reg_items(c, C_SOUND);
     ark_item(c, AK_NOANALOG, "Disable analog stick", "Ignores the analog stick, for a worn one that drifts.",
              O_OFFON, 2);
@@ -608,12 +616,17 @@ static void item_value(const Item *it, char *out, int n)
             snprintf(out, n, "%s", g_cfg.autoplay ? "On" : "Off");
         else if (it->key == X_BATTERY)
             snprintf(out, n, "%s", g_cfg.battery_pct ? "On" : "Off");
+        else if (it->key == X_CAST)
+            snprintf(out, n, "%s", g_cfg.cast ? "On" : "Off");
         else if (it->key == X_USBSYNC)
             snprintf(out, n, "%s", !g_cfg.usb_sync ? "Off" : usbsync_talking() ? "On, PC connected"
                                    : usbsync_attached() ? "On, cable in" : "On");
         else if (it->key == X_EQ)
             snprintf(out, n, "%s", eq_preset_name(g_cfg.eq_preset));
-        else if (it->key == X_LEVEL)
+        else if (it->key == X_XFADE) {
+            if (g_cfg.crossfade) snprintf(out, n, "%d s", g_cfg.crossfade);
+            else snprintf(out, n, "Off");
+        } else if (it->key == X_LEVEL)
             snprintf(out, n, "%s", O_LEVEL[g_cfg.level >= 0 && g_cfg.level < LEVEL_COUNT ? g_cfg.level : 0]);
         else if (it->key == X_SAVER)
             snprintf(out, n, "%s", O_SAVER[saver_index(g_cfg.saver_min)]);
@@ -649,6 +662,8 @@ static int switch_state(const Item *it)
         return g_cfg.battery_pct;
     if (it->src == SRC_XLT && it->key == X_USBSYNC)
         return g_cfg.usb_sync;
+    if (it->src == SRC_XLT && it->key == X_CAST)
+        return g_cfg.cast;
     return -1;
 }
 
@@ -703,9 +718,17 @@ static void change(Item *it, int dir)
                 g_cfg.usb_sync = 0;
             }
         }
+        else if (it->key == X_CAST) {
+            g_cfg.cast = !g_cfg.cast;
+            castplug_apply(g_cfg.cast); /* plugin and PLUGINS.TXT line, on the worker */
+        }
         else if (it->key == X_EQ) /* the same: the player notices at its next block */
             g_cfg.eq_preset = (g_cfg.eq_preset + dir + EQ_PRESETS) % EQ_PRESETS;
-        else if (it->key == X_LEVEL) /* the playing song follows at its next block */
+        else if (it->key == X_XFADE) { /* from the next song change */
+            int i = 0;
+            while (i < XFADE_COUNT - 1 && XFADE_STEPS[i] != g_cfg.crossfade) i++;
+            g_cfg.crossfade = XFADE_STEPS[(i + dir + XFADE_COUNT) % XFADE_COUNT];
+        } else if (it->key == X_LEVEL) /* the playing song follows at its next block */
             g_cfg.level = (g_cfg.level + dir + LEVEL_COUNT) % LEVEL_COUNT;
         else if (it->key == X_SAVER)
             g_cfg.saver_min = SAVER_MIN[(saver_index(g_cfg.saver_min) + dir + COUNT(SAVER_MIN)) % COUNT(SAVER_MIN)];
@@ -755,9 +778,11 @@ void settings_open(void)
     S.autoplay0 = g_cfg.autoplay;
     S.level0 = g_cfg.level;
     S.eq0 = g_cfg.eq_preset;
+    S.xfade0 = g_cfg.crossfade;
     S.theme0 = g_cfg.theme;
     S.battery0 = g_cfg.battery_pct;
     S.usbsync0 = g_cfg.usb_sync;
+    S.cast0 = g_cfg.cast;
     if (!s_tz_labels[0])
         for (int i = 0; i < TZ_COUNT; i++) {
             int m = V_TZ[i] < 0 ? -V_TZ[i] : V_TZ[i];
@@ -797,7 +822,8 @@ static void close_settings(void)
     }
     if (g_cfg.iso_driver != S.driver0 || g_cfg.saver_min != S.saver0 || g_cfg.ui_sounds != S.sounds0 ||
         g_cfg.theme != S.theme0 || g_cfg.autoplay != S.autoplay0 || g_cfg.level != S.level0 ||
-        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || g_cfg.eq_preset != S.eq0 || S.recent_dirty)
+        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || g_cfg.cast != S.cast0 || g_cfg.eq_preset != S.eq0 ||
+        g_cfg.crossfade != S.xfade0 || S.recent_dirty)
         bg_post(job_save_ini, NULL, 0);
     S.recent_dirty = 0;
     S.open = 0;

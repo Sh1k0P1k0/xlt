@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "id3.h"
+#include "gapless.h"
 #include "xio.h"
 
 #define TEXT_MAX 512 /* longest text frame we read */
@@ -176,6 +177,10 @@ void id3_take_gain(Id3Info *o, const char *key, const char *value)
     if (same_key(key, "replaygain_track_gain") && parse_db(value, &g) == 0) { o->gain_track = g; o->gains |= GAIN_TRACK; }
     else if (same_key(key, "replaygain_album_gain") && parse_db(value, &g) == 0) { o->gain_album = g; o->gains |= GAIN_ALBUM; }
     else if (same_key(key, "itunnorm") && parse_itunnorm(value, &g) == 0) { o->gain_sc = g; o->gains |= GAIN_SC; }
+    else if (same_key(key, "itunsmpb")) {
+        uint64_t total;
+        if (gap_itunsmpb(value, &o->smpb_delay, &o->smpb_pad, &total) == 0) o->has_smpb = 1;
+    }
 }
 
 /* TXXX (description, value) and COMM (language, description, text): the loudness tags. */

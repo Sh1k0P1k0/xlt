@@ -55,6 +55,11 @@ typedef struct {
     int aac_object;           /* 2 = AAC LC */
     /* every AAC track; `audio` (and the three fields above) is audios[audio_sel] */
     int naudio, audio_sel;
+    /* the audio track's edit list (edts > elst): its first edit starts audio_edit_skip
+     * into the track and lasts audio_edit_len, both in audio.timescale units; skip -1 if none */
+    int64_t audio_edit_skip;
+    uint64_t audio_edit_len;
+    uint32_t movie_ts;        /* mvhd's timescale, which the edit lengths are in */
     Mp4AudioInfo audios[MP4_AUDIO_MAX];
     /* the text subtitle tracks, listed only: mp4_sub_texts() reads them */
     int nsub;

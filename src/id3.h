@@ -18,13 +18,15 @@ typedef struct {
     int gains;            /* which of these the file has: GAIN_* bits */
     int gain_track, gain_album; /* ReplayGain */
     int gain_sc;          /* iTunes Sound Check (iTunNORM) */
+    /* iTunSMPB (iTunes' gapless info): frames of encoder padding at the start and end */
+    int has_smpb, smpb_delay, smpb_pad;
 } Id3Info;
 
 enum { GAIN_TRACK = 1, GAIN_ALBUM = 2, GAIN_SC = 4 };
 
 /* A tag the readers met: key "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_ALBUM_GAIN" (any
- * case; value like "-7.23 dB") or "iTunNORM" (Sound Check's ten hex numbers). Others
- * are ignored. */
+ * case; value like "-7.23 dB"), "iTunNORM" (Sound Check's ten hex numbers) or
+ * "iTunSMPB" (the gapless padding). Others are ignored. */
 void id3_take_gain(Id3Info *o, const char *key, const char *value);
 
 /* file_size: as the scanner got it from stat (for ID3v1 at the end).

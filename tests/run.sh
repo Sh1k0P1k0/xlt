@@ -41,12 +41,12 @@ python3 -I tests/make_pictures.py build/pictures
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_imgdecode tests/test_imgdecode.c src/imgdecode.c -ljpeg -lpng -lgif -lz
 build/test_imgdecode build/pictures
 python3 -I tests/make_mp3s.py build/mp3
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_id3 tests/test_id3.c src/id3.c src/imgdecode.c -ljpeg -lpng -lgif -lz
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_id3 tests/test_id3.c src/id3.c src/gapless.c src/imgdecode.c -ljpeg -lpng -lgif -lz -lm
 build/test_id3 build/mp3
 tests/make_videos.sh build/video
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_mp4 tests/test_mp4.c src/mp4.c src/id3.c src/srt.c src/textenc.c
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_mp4 tests/test_mp4.c src/mp4.c src/id3.c src/gapless.c src/srt.c src/textenc.c -lm
 build/test_mp4 build/video
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/h264strip_run tests/h264strip_run.c src/h264strip.c src/mp4.c src/id3.c
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/h264strip_run tests/h264strip_run.c src/h264strip.c src/mp4.c src/id3.c src/gapless.c -lm
 tests/check_h264strip.sh build
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_readwin tests/test_readwin.c src/readwin.c
 build/test_readwin
@@ -57,6 +57,9 @@ python3 -I tests/check_fsname.py build/test_fsname
 awk '/^static int utf8_run/,/^}/; /^static const Glyph \*glyph_of/,/^}/' src/gfx.c > build/glyph_of.c
 cc -O1 -g -Wall -Wextra -Wno-unused-variable -fsanitize=address,undefined -Isrc -Ibuild -o build/test_glyph tests/test_glyph.c src/fsname.c
 build/test_glyph
+# UMD dumps (src/dumpname.c): ISO names, the volume descriptor's size, the time left.
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_dumpname tests/test_dumpname.c src/dumpname.c
+build/test_dumpname
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_vqueue tests/test_vqueue.c src/vqueue.c
 build/test_vqueue
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_delpath tests/test_delpath.c src/delpath.c
@@ -84,7 +87,7 @@ mkdir -p build/boot_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
    -fsanitize=address,undefined -Itests/host -Isrc -Ibuild -o build/boot_preview tests/boot_preview.c -lm
 build/boot_preview build/boot_frames
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_thumbframe tests/test_thumbframe.c src/thumbconv.c src/imgdecode.c src/disc.c src/id3.c -ljpeg -lpng -lgif -lz -llz4
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_thumbframe tests/test_thumbframe.c src/thumbconv.c src/imgdecode.c src/disc.c src/id3.c src/gapless.c -ljpeg -lpng -lgif -lz -llz4 -lm
 build/test_thumbframe
 # The web browser: URLs, and the page parser + layout on a small page (memory errors), then its screen.
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_url tests/test_url.c src/url.c
@@ -100,7 +103,7 @@ build/test_resume
 # The Now Playing screen through the software GE (memory errors; frames in build/np_frames/ are for looking at).
 mkdir -p build/np_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -Wno-unused-variable \
-   -fsanitize=address,undefined -Itests/host -Isrc -Ibuild -o build/np_preview tests/np_preview.c src/eq.c src/resume.c src/lrc.c src/textenc.c src/id3.c src/audiofmt.c src/flac.c src/mp4.c -lm
+   -fsanitize=address,undefined -Itests/host -Isrc -Ibuild -o build/np_preview tests/np_preview.c src/eq.c src/resume.c src/lrc.c src/textenc.c src/id3.c src/gapless.c src/audiofmt.c src/flac.c src/mp4.c -lm
 build/np_preview build/np_frames
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/test_eq tests/test_eq.c src/eq.c -lm
 build/test_eq
@@ -128,10 +131,14 @@ python3 tests/make_zips.py build/zip
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_zip tests/test_zip.c src/zip.c -lz
 build/test_zip build/zip
 python3 tests/make_audio.py build/audio 2>/dev/null
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_flac tests/test_flac.c src/flac.c src/id3.c
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_flac tests/test_flac.c src/flac.c src/id3.c src/gapless.c -lm
 build/test_flac build/audio
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_audiofmt tests/test_audiofmt.c src/audiofmt.c src/flac.c src/mp4.c src/id3.c
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_audiofmt tests/test_audiofmt.c src/audiofmt.c src/flac.c src/mp4.c src/id3.c src/gapless.c -lm
 build/test_audiofmt build/audio
+# Gapless playback and crossfades (src/gapless.c): padding from LAME / ffmpeg files, resampler, mixing.
+tests/make_gapless.sh build/gapless
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_gapless tests/test_gapless.c src/gapless.c src/mp4.c src/id3.c src/srt.c src/textenc.c -lm
+build/test_gapless build/gapless
 mkdir -p build/rec
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_rec tests/test_rec.c src/avi.c src/recjpeg.c -ljpeg
 build/test_rec build/rec
@@ -187,6 +194,12 @@ cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-
    -Wno-unused-variable -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
    -o build/quitdlg_preview tests/quitdlg_preview.c -lm
 build/quitdlg_preview build/quitdlg_frames
+# The UMD's Copy to Memory Stick dialog (real dumpdlg.c); frames in build/dumpdlg_frames/.
+mkdir -p build/dumpdlg_frames
+cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+   -Wno-unused-variable -Wno-format-truncation -fsanitize=address,undefined -Itests/host -Isrc -Ibuild \
+   -o build/dumpdlg_preview tests/dumpdlg_preview.c -lm
+build/dumpdlg_preview build/dumpdlg_frames
 # Settings > About and its free-space dialog (real settings.c); frames in build/settings_frames/.
 mkdir -p build/settings_frames
 cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \

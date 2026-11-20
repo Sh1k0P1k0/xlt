@@ -43,9 +43,12 @@
 #include "arkcfg.h"
 #include "boot.h"
 #include "umd.h"
+#include "umddump.h"
+#include "dumpdlg.h"
 #include "safestart.h"
 #include "recorder.h"
 #include "shotplug.h"
+#include "castplug.h"
 #include "arklauncher.h"
 #include "version.h"
 #include <pspctrl.h>
@@ -89,6 +92,7 @@ static int power_callback(int unknown, int flags, void *common)
     if (flags & PSP_POWER_CB_SUSPENDING) {
         rec_on_suspend(); /* saved while the Memory Stick is still there */
         video_on_suspend();
+        umddump_on_suspend();
     }
     if (flags & PSP_POWER_CB_RESUME_COMPLETE) {
         usbsync_on_resume();
@@ -285,6 +289,7 @@ static void start(const Entry *e, const char *dir, int self)
     sfx_shutdown();
     guard_done(dir); /* a game starting is a start that worked */
     marker_write(dir, e->path);
+    umddump_abort(); /* (the dialog keeps a launch from being asked for; this is for safety) */
     umd_stop(); /* the drive's watcher thread: nothing may talk to it while the PSP reboots */
     quitdlg_release(); /* the game's HOME is the system's again */
     launch_entry(e, cfg.driver);
@@ -336,6 +341,7 @@ int main(int argc, char *argv[])
     thumbs_init(dir);
     cc_init(dir);            /* restores the saved brightness */
     shotplug_install();      /* the in-game screenshot plugin, on the background worker */
+    castplug_apply(g_cfg.cast); /* XLT Cast's plugin: installed or updated, its line on or off (worker) */
     int launcher_pending = 1; /* "Start XLT at boot" is seen to once the boot screen is gone (main loop) */
     video_init(dir);
     fm_init(dir);
@@ -391,6 +397,7 @@ int main(int argc, char *argv[])
         int saver_dirty = saver_update(&in); /* may eat the press that wakes it */
         dirty |= btntest_update(&in);         /* the button tester takes every press */
         dirty |= quitdlg_update(&in);         /* XLT's HOME dialog: takes every press while up */
+        dirty |= dumpdlg_update(&in);         /* copying the UMD: takes every press while up */
         /* L+R+START: screenshot, L+R+SELECT: start or stop recording, from anywhere
          * in XLT. START and SELECT are swallowed so they don't also pause music or
          * open the control center; a trigger pressed while the other is held
@@ -498,6 +505,7 @@ int main(int argc, char *argv[])
         sysctl_usb_stop();
     usbsync_stop();
     guard_done(dir);
+    umddump_abort(); /* a copy in progress stops and its part file goes */
     launcher_before_exit(); /* as ARK's launcher, the XMB would only start XLT again (logs, so before the library goes) */
     library_shutdown();
     thumbs_shutdown();

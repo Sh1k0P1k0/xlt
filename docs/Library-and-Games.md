@@ -103,4 +103,15 @@ ARK's "Disable UMD drive" (`noumd`, Settings → System) must be off, or the PSP
 `PSP_GAME/PARAM.SFO`. The card's row shows the disc's ICON0 (its ICON1 plays when the focus rests on it,
 like the other games), the title, ID, region and firmware. ✕ starts it: `disc0:/PSP_GAME/SYSDIR/EBOOT.BIN`
 with apitype 0x120, or an installed update (`PSP/GAME/<ID>/PBOOT.PBP`) with 0x160, MODE_UMD, as arkMenu.
-△ has Play, CPU speed and Details. A UMD Video is shown as such (the XMB plays those). No card on a PSP Go.
+△ has Play, CPU speed, **Copy to Memory Stick** and Details. A UMD Video is shown as such (the XMB plays those). No card on a PSP Go.
+
+**Copy to Memory Stick** (`src/umddump.c`, dialog `src/dumpdlg.c`) makes `ISO/Title [ID].iso` from the disc, a
+plain ISO (XLT Tool can make a CSO of it on the PC). The disc is read raw through `umd0:`, whose reads and seeks
+count 2048-byte sectors; its end is the disc's size (the volume descriptor's size is the fallback). It first
+counts the free space from the FAT and refuses if the ISO won't fit. The copy goes to `<name>.xltpart` and is
+renamed only once every sector is in and the size is right, so a stopped or failed copy (○ then Stop, the disc
+taken out, the PSP put to sleep, a sector that won't read after a few tries) is deleted, never left as a broken
+ISO; unreadable sectors are never filled with zeros. The dialog shows the progress, speed and time left; the PSP
+doesn't auto-sleep meanwhile. `dumpname.c` (names: FAT's forbidden characters dropped, cut to 120 bytes, then
+Shift-JIS via `fsname.c`; a name in use gets " (2)") is host-tested in `tests/test_dumpname.c`, the dialog in
+`tests/dumpdlg_preview.c`; `cache/scan.log` gets an `umd dump:` line for the size, the result and the time.

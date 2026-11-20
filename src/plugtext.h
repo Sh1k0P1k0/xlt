@@ -64,6 +64,13 @@ int plugtext_loads_for_pops(const char *text, const char *name);
  * new length or -1. */
 int plugtext_append(const char *text, const char *line, char *out, int cap);
 
+/* ---- XLT Cast (src/castplug.c) ---- */
+
+/* text with every global line (a known runlevel, not a game ID) that loads a file called
+ * `name` switched to on or off; per-game lines and everything else stay byte for byte.
+ * *changed = how many lines changed. Returns the new length or -1. */
+int plugtext_switch_named(const char *text, const char *name, int on, char *out, int cap, int *changed);
+
 /* 1 if a plugin's file name says it takes screenshots ("screenshot.prx",
  * "sshot.prx", "ScreenCap.prx", ...). XLT's own xltshot.prx is not one of them. */
 int plugtext_is_screenshot(const char *path);

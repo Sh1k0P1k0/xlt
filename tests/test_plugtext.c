@@ -103,6 +103,32 @@ int main(void)
     CHECK(plugtext_set_line(g, 0, NULL, 1, gout, sizeof(gout)) == -1, "comment line refused");
     CHECK(plugtext_set_line(g, 40, NULL, 1, gout, sizeof(gout)) == -1, "missing line refused");
 
+    /* XLT Cast (src/castplug.c) */
+    {
+        const char *t =
+            "always, ms0:/seplugins/usbnet/usbnet.prx, on\r\n"
+            "game, ms0:/SEPLUGINS/xltcast.prx, off\r\n"
+            "ULUS10041, ms0:/SEPLUGINS/XLTCAST.PRX, off\r\n"
+            "# game, ms0:/SEPLUGINS/xltcast.prx, off\r\n"
+            "vsh, ms0:/SEPLUGINS/xltcast.prx, off\r\n";
+        char out[1024];
+        int ch = -1, n = plugtext_switch_named(t, "xltcast.prx", 1, out, sizeof(out), &ch);
+        CHECK(n > 0 && ch == 2, "cast on: its two global lines switched");
+        CHECK(strstr(out, "game, ms0:/SEPLUGINS/xltcast.prx, on\r\n") && strstr(out, "vsh, ms0:/SEPLUGINS/xltcast.prx, on\r\n"),
+              "both say on, CRLF kept");
+        CHECK(strstr(out, "ULUS10041, ms0:/SEPLUGINS/XLTCAST.PRX, off\r\n") && strstr(out, "# game, ms0:/SEPLUGINS/xltcast.prx, off"),
+              "a per-game line and a comment stay as they were");
+        CHECK(strstr(out, "usbnet.prx, on\r\n") != NULL, "other plugins untouched");
+        n = plugtext_switch_named(out, "xltcast.prx", 1, out + 512, 512, &ch);
+        CHECK(n > 0 && ch == 0, "already on: nothing changes");
+        char back[1024];
+        n = plugtext_switch_named(out, "XLTCAST.PRX", 0, back, sizeof(back), &ch);
+        CHECK(n == (int)strlen(t) && ch == 2 && !strcmp(back, t), "off again: byte for byte the original");
+        n = plugtext_switch_named("vsh, ms0:/SEPLUGINS/xmbctrl.prx, on\n", "xltcast.prx", 1, back, sizeof(back), &ch);
+        CHECK(n > 0 && ch == 0 && !plugtext_mentions(back, "xltcast.prx"), "not listed: nothing switched (castplug appends)");
+        CHECK(plugtext_switch_named(t, "xltcast.prx", 1, back, 10, &ch) == -1, "too small: -1");
+    }
+
     /* the in-game screenshot plugin (src/shotplug.c) */
     {
         const char *t =

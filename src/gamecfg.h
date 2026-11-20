@@ -50,8 +50,14 @@ typedef struct {
     int usb_sync;       /* USB sync on: the PC can send files whenever the cable is in (usbsync.c) */
     int eq_preset;      /* the music equalizer: EQ_* (eq.h), 0 = off */
     int eq_custom[5];   /* Custom's gains in dB, -12..12, 60 Hz to 12 kHz (EQ_BANDS) */
+    int crossfade;      /* music: seconds the next song fades in over the last one (XFADE_STEPS), 0 = gapless only */
     char home_order[72]; /* the home menu's cards, keys joined by commas (homeorder.h, ui.c); "" = the default order */
+    int cast;           /* XLT Cast on: the plugin that shows games on the PC is installed and on (castplug.c) */
 } GlobalCfg;
+
+/* Settings > Sound > Crossfade: the lengths offered, in seconds. */
+#define XFADE_COUNT 6
+static const int XFADE_STEPS[XFADE_COUNT] = {0, 2, 4, 6, 8, 10};
 
 #define GRID_FILES (1 << 7)
 

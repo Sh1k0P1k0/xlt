@@ -34,13 +34,14 @@
 #include "fsdel.h"
 #include "groups.h"
 #include "musicsort.h"
+#include "dumpdlg.h"
 
 #define SHEET_W 236
 #define ROW_Y 56
 #define ROW_H 26
 #define PAD 14
 
-enum { R_PLAY, R_SORT, R_DRIVER, R_CPU, R_PLUGINS, R_FAV, R_ADD_PL, R_PL_REMOVE, R_PL_MOVE, R_MOVE, R_DETAILS, R_REMOVE, R_DELETE, R_MAX };
+enum { R_PLAY, R_SORT, R_DRIVER, R_CPU, R_PLUGINS, R_FAV, R_ADD_PL, R_PL_REMOVE, R_PL_MOVE, R_MOVE, R_DUMP, R_DETAILS, R_REMOVE, R_DELETE, R_MAX };
 #define PLUG_ROWS 7
 
 static struct {
@@ -199,6 +200,8 @@ void opts_open(const Entry *e)
     }
     if (!O.hidden && !media && !umd)
         O.rows[O.nrows++] = R_MOVE; /* to the other tab or a folder (XLT only) */
+    if (umd && !O.hidden)
+        O.rows[O.nrows++] = R_DUMP; /* the disc to an ISO (umddump.c) */
     O.rows[O.nrows++] = R_DETAILS;
     O.del_is_dir = media || umd ? -1 : del_target(e->path, !kind_is_disc(e->kind), library_self(), O.del_target, sizeof(O.del_target));
     if (!umd && (O.hidden || O.del_is_dir < 0))
@@ -367,6 +370,10 @@ int opts_input(unsigned int p)
         case R_DETAILS:
             O.details = 1;
             break;
+        case R_DUMP:
+            close_sheet();
+            dumpdlg_open(&O.e);
+            break;
         case R_MOVE:
             ui_open_move(&O.e); /* the menu opens over the sheet */
             break;
@@ -483,6 +490,7 @@ static const char *row_label(int row)
     case R_FAV: return favorite_get(O.e.path) ? "Remove from favorites" : "Add to favorites";
     case R_PLUGINS: return "Plugins";
     case R_MOVE: return "Move to...";
+    case R_DUMP: return "Copy to Memory Stick";
     case R_SORT: return O.sort_view == VIEW_MUSIC ? "Sort songs by" : O.sort_view == VIEW_HOMEBREW ? "Sort apps by" : "Sort games by";
     case R_ADD_PL: return "Add to playlist...";
     case R_PL_REMOVE: return "Remove from playlist";
@@ -632,7 +640,7 @@ void opts_draw(void)
     for (int i = 0; i < O.nrows; i++) {
         int row = O.rows[i], y = ROW_Y + i * rh + (row >= R_FAV || (O.hidden && row >= R_DETAILS) ? 8 : 0);
         int focused = i == O.focus;
-        if (i > 0 && (row == R_FAV || (O.hidden && row == R_DETAILS)) )
+        if (i > 0 && row >= R_FAV && O.rows[i - 1] < R_FAV) /* the line above the first of the lower group */
             gfx_rect(x + PAD, y - 6, w - 2 * PAD, 1, C_LINE);
         if (focused)
             gfx_rrect(x + 8, y, w - 16, rh - 2, 5, C_ACCENT);

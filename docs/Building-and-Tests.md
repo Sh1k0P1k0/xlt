@@ -72,6 +72,13 @@ background and preview the same way (see [Look and sound](Look-and-Sound.md#logo
   write or a short picture is reported. The plugin-list editing (`tests/test_plugtext.c`): finding XLT's line on
   any runlevel, recognising other screenshot plugins by name, turning off only those that load in games, and
   adding the line in the file's own line endings.
+- Gapless and crossfade (`tests/test_gapless.c`, files made by LAME and ffmpeg in `tests/make_gapless.sh`): the
+  encoder padding read from LAME's tag, `iTunSMPB` and an M4A's edit list has to leave exactly the encoded
+  music's length; the resampler, the equal-power mix and which songs on an album are joined without a fade.
+- UMD copy names (`tests/test_dumpname.c`): FAT's forbidden characters dropped, the 120-byte cut on a character
+  boundary, Shift-JIS, and " (2)" for a name in use; the copy dialog's states in `tests/dumpdlg_preview.c`.
+- XLT Cast's plugin line (`tests/test_plugtext.c`): xltcast's lines switched on and off by name, line endings
+  kept, the file unchanged byte for byte when turned off again, nothing added when it isn't listed.
 - Free space from the FAT (`tests/make_fat.py`, images from `mkfs.fat`): FAT16, FAT32 and FAT32 behind an MBR
   like a Memory Stick, with chains, a bad cluster, reserved top bits and the last cluster marked used; the
   cluster count has to match `fsck.fat`'s and the free count the clusters left, read in one go and in uneven

@@ -244,6 +244,33 @@ static void base_lc(const char *path, char *out, int n)
     out[k] = 0;
 }
 
+int plugtext_switch_named(const char *text, const char *name, int on, char *out, int cap, int *changed)
+{
+    int len = (int)strlen(text), k = 0;
+    if (changed) *changed = 0;
+    if (len >= cap) return -1;
+    memcpy(out, text, len + 1);
+    PlugLine ls[PLUG_MAX];
+    int n = plugtext_lines(text, 0, ls, PLUG_MAX);
+    char want[PLUG_PATH], have[PLUG_PATH];
+    base_lc(name, want, sizeof(want));
+    char *tmp = NULL;
+    for (int i = 0; i < n; i++) {
+        base_lc(ls[i].path, have, sizeof(have));
+        if (strcmp(have, want) || ls[i].on == (on != 0))
+            continue;
+        if (!tmp && !(tmp = malloc(cap))) return -1;
+        int r = plugtext_set_line(out, ls[i].line, NULL, on, tmp, cap); /* lines keep their numbers */
+        if (r < 0) { free(tmp); return -1; }
+        memcpy(out, tmp, r + 1);
+        len = r;
+        k++;
+    }
+    free(tmp);
+    if (changed) *changed = k;
+    return len;
+}
+
 int plugtext_mentions(const char *text, const char *name)
 {
     char want[PLUG_PATH], have[PLUG_PATH];
