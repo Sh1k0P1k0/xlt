@@ -32,7 +32,8 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 - **XLT Cast: your game on the PC.** The game you're playing on the PSP shows live in
   [XLT Tool](https://github.com/boubounokefalos/xlt-tool) on your PC, with its sound, over the USB cable. Turn on
   **Settings → XLT → XLT Cast**, then in a game, with the cable in, **L+R+SELECT** starts or stops it (HOME stops
-  it too). Most games come through at full speed (30 fps) without slowing down on the PSP.
+  it too). Most games come through at full speed (30 fps) without slowing down on the PSP. PS1 (POPS) games
+  aren't supported yet.
 - **Gapless music and crossfades.** Albums play with no gap between songs, and **Settings → Sound & Controls →
   Crossfade** (2 to 10 s) fades one song into the next. Songs that run on from each other on an album are still
   joined without a fade.
@@ -111,7 +112,7 @@ no warranty.
   A file is only put in place once it has arrived whole and checked, so a pulled cable leaves nothing
   half-written. USB mode is still there for a file manager.
 - **XLT Cast.** With **Settings → XLT → XLT Cast** on, L+R+SELECT in a game shows it live in XLT Tool on your PC,
-  with its sound, over the USB cable.
+  with its sound, over the USB cable (PSP games and homebrew; PS1 games not yet).
 - **Play time.** The screenshot plugin also counts how long each game runs (not while the PSP sleeps), PS1
   games included; XLT adds it to the game's details and to the **Most played** sort.
 - **Settings.** XLT's own options, ARK's settings and plugins, and the PSP's system settings in one place.

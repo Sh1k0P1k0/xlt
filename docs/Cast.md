@@ -73,7 +73,8 @@ homebrew the watcher and sender run at higher priorities while casting (about 20
 | God of War: Ghost of Sparta | 8888 | 9.9 ms | 30 fps | 33 → 30 fps |
 | NFSU2VIEW (homebrew) | 8888 | | ~20 fps | |
 
-A PSP-3000 casts at 30 fps with sound too. Games that use USB themselves (camera, GPS) can't be cast.
+A PSP-3000 casts at 30 fps with sound too. Games that use USB themselves (camera, GPS) can't be cast. PS1 (POPS) games aren't supported yet: the plugin
+is only listed for PSP games and homebrew (`game`), not for POPS (`pops`).
 
 ## Testing it from the PC
 
