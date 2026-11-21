@@ -40,8 +40,8 @@ enum {
     XLTS_SOURCE = 4,  /* -> go-ahead reply, then len bytes in transfers of arg bytes */
     XLTS_CTLLOG = 5,  /* -> text: the control requests seen, reply arg = count */
     XLTS_DF = 6,      /* path (a device), arg 1 = count again -> XltsDf, reply arg = XLTS_DF_*.
-                       * Counted from the FAT itself (~1 s on 128 GB), then kept up to date
-                       * with sync's own changes for XLTS_DF_KEEP_US */
+                       * The driver's own count, then kept up to date with sync's own changes
+                       * for XLTS_DF_KEEP_US. (XLTS_DF_COUNTED, from the FAT: older XLT only) */
     XLTS_LIST = 7,    /* path of a folder, arg = entries to skip -> XltsEntry..., arg = count */
     XLTS_STAT = 8,    /* path -> one XltsEntry */
     XLTS_MKDIR = 9,   /* path, with its parents */

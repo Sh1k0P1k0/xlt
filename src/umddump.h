@@ -19,6 +19,7 @@ typedef struct {
     int state;
     uint64_t done, total;  /* bytes */
     uint32_t elapsed_ms;   /* since the copying began */
+    int pause_s;           /* DUMP_PREPARING: > 0 while the free space is counted (the PSP holds ~this long) */
     char name[128];        /* the ISO's name, UTF-8 (for the screen) */
     char error[128];       /* DUMP_FAILED: what went wrong, for the user */
 } DumpStatus;

@@ -105,6 +105,10 @@ int main(int argc, char **argv)
     shot("dump_0_preparing");
     tap(PSP_CTRL_TRIANGLE);
     CHECK(!s_left, "a press got past the dialog");
+    s_st.pause_s = 11; /* the driver's free-space count: the PSP holds next */
+    frames(2);
+    shot("dump_0b_space_pause");
+    s_st.pause_s = 0;
 
     s_st.state = DUMP_COPYING;
     s_st.total = 1434 * MB;

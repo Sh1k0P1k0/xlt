@@ -79,13 +79,10 @@ background and preview the same way (see [Look and sound](Look-and-Sound.md#logo
   boundary, Shift-JIS, and " (2)" for a name in use; the copy dialog's states in `tests/dumpdlg_preview.c`.
 - XLT Cast's plugin line (`tests/test_plugtext.c`): xltcast's lines switched on and off by name, line endings
   kept, the file unchanged byte for byte when turned off again, nothing added when it isn't listed.
-- Free space from the FAT (`tests/make_fat.py`, images from `mkfs.fat`): FAT16, FAT32 and FAT32 behind an MBR
-  like a Memory Stick, with chains, a bad cluster, reserved top bits and the last cluster marked used; the
-  cluster count has to match `fsck.fat`'s and the free count the clusters left, read in one go and in uneven
-  chunks; non-FAT sectors are refused.
-- Settings → About and its free-space dialog (`tests/settings_preview.c`, the real `settings.c`): no count on
-  only highlighting About, one on going in, stopped by leaving About or by ○ (which goes back to the sections),
-  no second count, and the driver fallback drawn before it runs; then each state of the Check for updates
+- Settings → About and its free-space dialog (`tests/settings_preview.c`, the real `settings.c`): nothing on
+  only highlighting About; going in asks first, nothing gets past the question, ○ (Not now) stays in About and
+  isn't asked again; the Memory Stick row asks with ✕, "please wait" is drawn before the driver's count, then
+  the result, closed by ✕ or by itself; once counted, the row measures at once; then each state of the Check for updates
   dialog (checking, up to date, available with scrolling notes, downloading, installing, installed, failed).
   Frames in `build/settings_frames/`.
 - XLT's HOME dialog (`tests/quitdlg_preview.c`, the real `quitdlg.c`): HOME opens it on Yes, ←/→ switch, No, ○

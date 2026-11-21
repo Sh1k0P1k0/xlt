@@ -1,7 +1,8 @@
 /* Renders Settings > About on the PC: the real settings.c (gfx.c through the
  * software GE of saver_preview.c), with the free-space count stood in for, so
- * the dialog can be seen at its stages: counting, done, the driver's fallback,
- * stopped with ○, and About after. Checks the dialog closes and the rows update.
+ * the dialog can be seen: the question, Not now, "please wait" before the
+ * driver's count, what it found, the Memory Stick row measuring again, and About
+ * after. Checks the dialog closes and the rows update.
  * Writes PPM frames.
  *
  *   settings_preview OUTDIR [THEME] */
@@ -86,7 +87,7 @@ int sysctl_usb_active(void) { return 0; }
 const char *sysctl_model_name(void) { return "PSP-E1004 (Street)"; }
 
 /* the count: driven by hand below */
-static int s_cstate = COUNT_IDLE, s_cpm, s_raw_ok = 1, s_driver_calls, s_cancels;
+static int s_driver_calls;
 static uint64_t s_free, s_total;
 int sysctl_storage(const char *dev, uint64_t *f, uint64_t *t)
 {
@@ -96,10 +97,7 @@ int sysctl_storage(const char *dev, uint64_t *f, uint64_t *t)
 }
 int sysctl_storage_date(void) { return s_total ? 20261112 : 0; }
 int sysctl_storage_measure(void) { s_driver_calls++; s_free = 47ull << 30; s_total = 119ull << 30; return 12051; }
-int sysctl_storage_count_start(void) { s_cstate = s_raw_ok ? COUNT_RUNNING : COUNT_FAILED; s_cpm = 0; return 0; }
-int sysctl_storage_count_state(int *pm) { if (pm) *pm = s_cpm; return s_cstate; }
-void sysctl_storage_count_cancel(void) { s_cancels++; s_cstate = COUNT_CANCELLED; }
-const char *sysctl_storage_count_how(int *ms) { if (ms) *ms = 1840; return "msstor0p1: (kernel)"; }
+int sysctl_storage_pause_s(void) { return s_driver_calls ? 0 : 12; }
 
 /* update.c, stood in for: the dialog's states are set by the test */
 #include "../src/update.h"
@@ -158,10 +156,6 @@ static int s_mf, s_tk;
 static void dframe(const char *dir, unsigned b)
 {
     if (b) settings_input(b);
-    if (s_cstate == COUNT_RUNNING) { /* the count, as the PSP's took (~1.1 s) */
-        s_cpm += 15;
-        if (s_cpm >= 1000) { s_cpm = 1000; s_cstate = COUNT_DONE; s_free = 47ull << 30; s_total = 119ull << 30; }
-    }
     settings_step();
     if (++s_tk & 1) return;
     gfx_begin(g_th->bg);
@@ -186,7 +180,7 @@ static int demo(const char *dir)
     dframe(dir, 0);
     if (S.cat != C_ABOUT) printf("settings demo: ended on section %d, not About\n", S.cat);
     dwait(dir, 0, 24);
-    dwait(dir, PSP_CTRL_RIGHT, 110);                   /* in: the count, then the result */
+    dwait(dir, PSP_CTRL_RIGHT, 110);                   /* in: the note, the count, then the result */
     printf("settings demo: %d frames\n", s_mf);
     return 0;
 }
@@ -213,57 +207,64 @@ int main(int argc, char **argv)
     frames(20);
     CHECK(s_space == SP_IDLE, "a count on only highlighting About");
     shot("set_0_highlighted");
-    /* stopped: moving off About, then ○ (Settings stays open); neither counts as done */
+    /* entering About asks first; Not now (○) keeps you in About, and it doesn't ask again */
     settings_input(PSP_CTRL_RIGHT);
-    frames(10);
-    CHECK(s_space == SP_COUNTING, "no count on entering About");
-    settings_input(PSP_CTRL_RTRIGGER); /* L/R: another section */
     frames(30);
-    CHECK(s_space == SP_IDLE && s_cancels == 1, "moving off didn't stop it (%d)", s_cancels);
-    go_about();
-    settings_input(PSP_CTRL_RIGHT);
-    frames(10);
+    CHECK(s_space == SP_ASK && s_driver_calls == 0, "entering About: state %d, calls %d", s_space, s_driver_calls);
+    shot("set_1_ask");
+    settings_input(PSP_CTRL_RTRIGGER); /* nothing gets past the question */
+    CHECK(S.cat == C_ABOUT, "L/R moved under the question");
     settings_input(PSP_CTRL_CIRCLE);
     frames(30);
-    CHECK(s_space == SP_IDLE && s_cancels == 2 && S.open, "○ didn't stop it, or closed Settings (state %d, cancels %d, open %d, cat %d col %d)", s_space, s_cancels, S.open, S.cat, S.col);
-    /* counted to the end */
-    CHECK(S.col == 0, "○ didn't go back to the sections");
-    settings_input(PSP_CTRL_RIGHT);   /* in again: counts, as nothing was counted yet */
-    frames(20);
-    CHECK(s_space == SP_COUNTING, "no count after a stopped one");
-    shot("set_1_counting_0");
-    s_cpm = 420;
-    frames(2);
-    shot("set_2_counting_42");
-    s_cstate = COUNT_DONE; s_cpm = 1000; s_free = 47ull << 30; s_total = 119ull << 30;
-    frames(2);
-    shot("set_3_done");
-    CHECK(strstr(s_note, "counted in 1840 ms"), "no log line: %s", s_note);
-    frames(60);
-    CHECK(s_space == SP_IDLE && s_space_t.x == 0, "dialog stayed after done");
-    shot("set_4_about_after");
-    /* round the sections again and back in: no second count this time XLT runs */
+    CHECK(s_space == SP_IDLE && s_space_t.x == 0 && s_driver_calls == 0 && S.open && S.col == 1,
+          "Not now: state %d, calls %d, open %d, col %d", s_space, s_driver_calls, S.open, S.col);
     settings_input(PSP_CTRL_CIRCLE);
-    for (int i = 0; i < C_COUNT; i++) { settings_input(PSP_CTRL_DOWN); frames(3); }
     settings_input(PSP_CTRL_RIGHT);
     frames(20);
-    CHECK(S.cat == C_ABOUT && s_space == SP_IDLE, "counted again (cat %d, state %d)", S.cat, s_space);
-
-    /* the raw stick can't be read: the driver, with the warning drawn first (a fresh start of XLT) */
-    s_counted = 0;
-    s_raw_ok = 0;
-    settings_input(PSP_CTRL_CIRCLE);
-    settings_input(PSP_CTRL_RIGHT);
-    frames(1);
-    CHECK(s_space == SP_DRIVER && s_driver_calls == 0, "driver fallback: state %d, calls %d", s_space, s_driver_calls);
-    frames(2);
-    shot("set_5_driver_note");
-    frames(30);
-    CHECK(s_driver_calls == 1 && s_space == SP_IDLE, "driver count: %d calls, state %d", s_driver_calls, s_space);
-    settings_input(PSP_CTRL_CIRCLE);
-    settings_input(PSP_CTRL_RIGHT);
+    CHECK(s_space == SP_IDLE, "asked again on entering About (state %d)", s_space);
+    /* the Memory Stick row: Cross asks, Cross measures */
+    {
+        Cat *ab = &s_cats[C_ABOUT];
+        int row = -1;
+        for (int i = 0; i < ab->n; i++)
+            if (ab->items[i].src == SRC_ACTION && ab->items[i].key == A_SPACE) row = i;
+        CHECK(row >= 0, "no Memory Stick row to measure with");
+        if (row >= 0) {
+            S.sel[C_ABOUT] = row;
+            if (S.top[C_ABOUT] > row) S.top[C_ABOUT] = row;
+            if (row >= S.top[C_ABOUT] + VISIBLE) S.top[C_ABOUT] = row - VISIBLE + 1;
+        }
+    }
     frames(5);
-    CHECK(s_driver_calls == 1, "the driver counted again (%d)", s_driver_calls);
+    shot("set_2_row_not_measured");
+    settings_input(PSP_CTRL_CROSS);
+    frames(30);
+    CHECK(s_space == SP_ASK, "Cross on the row didn't ask (state %d)", s_space);
+    settings_input(PSP_CTRL_CROSS);
+    frames(1);
+    CHECK(s_space == SP_SCAN && s_driver_calls == 0 && s_space_t.x >= FX(1), "Measure: state %d, calls %d", s_space, s_driver_calls);
+    shot("set_3_scanning");
+    frames(5);
+    CHECK(s_driver_calls == 1 && s_space == SP_DONE, "driver count: %d calls, state %d", s_driver_calls, s_space);
+    CHECK(strstr(s_note, "free space measured") && strstr(s_note, "first time"), "no log line: %s", s_note);
+    frames(20);
+    shot("set_4_done");
+    settings_input(PSP_CTRL_CROSS); /* OK */
+    frames(30);
+    CHECK(s_space == SP_IDLE && s_space_t.x == 0 && S.open && S.cat == C_ABOUT, "OK didn't close it (state %d)", s_space);
+    shot("set_5_about_after");
+    /* the driver counted: the row measures at once, no dialog */
+    settings_input(PSP_CTRL_CROSS);
+    frames(2);
+    CHECK(s_space == SP_IDLE && s_driver_calls == 2 && strstr(s_note, "again"), "instant count: state %d, calls %d", s_space, s_driver_calls);
+    /* the done dialog also goes by itself */
+    s_driver_calls = 0; s_counted = 0;
+    settings_input(PSP_CTRL_CIRCLE);
+    settings_input(PSP_CTRL_RIGHT);
+    frames(20);
+    settings_input(PSP_CTRL_CROSS);
+    frames(200);
+    CHECK(s_space == SP_IDLE && s_driver_calls == 1, "done didn't close by itself (state %d, calls %d)", s_space, s_driver_calls);
 
     /* Check for updates: each state of its dialog */
     {

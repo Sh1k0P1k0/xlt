@@ -27,7 +27,6 @@ int snprintf(char *buf, size_t n, const char *fmt, ...);
 #include "xltsync.h"
 #include "syncpath.h"
 #include <systemctrl.h>
-#include "../../src/fatcount.h"
 
 PSP_MODULE_INFO("XLTSync", PSP_MODULE_KERNEL, 1, 1);
 
@@ -547,11 +546,13 @@ static int cmd_ctllog(const XltsHeader *c)
     return reply(c, 0, len, n);
 }
 
-/* Free space. The driver's own count (devctl 0x02425818) walks the whole FAT inside
- * the driver and holds the PSP for ~12 s on a 128 GB card. Reading the FAT from the
- * raw partition and counting it here (src/fatcount.c, as XLT's About does) takes
- * about 1 s. The count is then kept for a while and moved with sync's own changes,
- * so the PC can ask before every file. Per device: 0 ms0:, 1 ef0:. */
+/* Free space: the driver's own count (devctl 0x02425818). It walks the whole FAT
+ * inside the driver and holds the PSP for ~12 s on a 128 GB card the first time,
+ * then answers at once. Never read the raw partition (msstor0p1:) for this while
+ * ms0: is mounted: doing so beside the FAT driver's own writes wrote a copy of the
+ * boot sector over a folder (2026-11-21, VIDEO lost its entries). The count is kept
+ * for a while and moved with sync's own changes, so the PC can ask before every
+ * file. Per device: 0 ms0:, 1 ef0:. */
 static struct {
     int valid;
     unsigned at;                     /* when it was counted (system time, us) */
@@ -574,58 +575,6 @@ static void space_moved(const char *path, long long bytes)
     s_space[i].free_clusters += bytes < 0 ? n : -n;
 }
 
-/* Counts ms0:'s free clusters from its FAT: 0, or -1 if the partition can't be read
- * (then the driver's count is used). Uses s_buf, free between commands. */
-static int fat_count(unsigned *cluster, unsigned *free_n, unsigned *clusters)
-{
-    FatGeom g;
-    unsigned part = 0;
-    SceUID fd = sceIoOpen("msstor0p1:", PSP_O_RDONLY, 0);
-    int ok = fd >= 0 && sceIoRead(fd, s_buf, 512) == 512 && fat_parse_boot(s_buf, &g) == 0;
-    if (!ok) {
-        /* the whole stick, through its MBR */
-        if (fd >= 0)
-            sceIoClose(fd);
-        fd = sceIoOpen("msstor:", PSP_O_RDONLY, 0);
-        if (fd < 0 || sceIoRead(fd, s_buf, 512) != 512) {
-            if (fd >= 0) sceIoClose(fd);
-            return -1;
-        }
-        long long lba = fat_mbr_first(s_buf);
-        if (lba <= 0 || lba >= 0x400000 || sceIoLseek32(fd, (int)(lba * 512), PSP_SEEK_SET) < 0 ||
-            sceIoRead(fd, s_buf, 512) != 512 || fat_parse_boot(s_buf, &g) != 0) {
-            sceIoClose(fd);
-            return -1;
-        }
-        part = (unsigned)lba * 512;
-    }
-    /* whole sectors only: a block device reads nothing else */
-    unsigned start = g.fat_offset / g.sector * g.sector, skip = g.fat_offset - start;
-    unsigned want = skip + g.fat_bytes, done = 0, n_free = 0;
-    unsigned chunk = (unsigned)s_buf_size / g.sector * g.sector;
-    int r = sceIoLseek32(fd, (int)(part + start), PSP_SEEK_SET) < 0 ? -1 : 0;
-    while (r == 0 && done < want) {
-        unsigned n = want - done < chunk ? (want - done + g.sector - 1) / g.sector * g.sector : chunk;
-        if (sceIoRead(fd, s_buf, n) < (int)n) {
-            r = -1;
-            break;
-        }
-        unsigned lo = done < skip ? skip - done : 0; /* bytes of this chunk before the FAT */
-        unsigned at = done + lo - skip, len = n - lo;
-        if (at + len > g.fat_bytes)
-            len = g.fat_bytes - at;
-        n_free += fat_count_free(&g, s_buf + lo, len, at);
-        done += n;
-    }
-    sceIoClose(fd);
-    if (r < 0)
-        return -1;
-    *cluster = g.cluster;
-    *free_n = n_free;
-    *clusters = g.clusters;
-    return 0;
-}
-
 static int cmd_df(const XltsHeader *c)
 {
     if (c->len > 256 || recv_payload(c) < 0)
@@ -637,28 +586,23 @@ static int cmd_df(const XltsHeader *c)
     int i = dev_index(dev), how = XLTS_DF_KEPT;
     unsigned now = sceKernelGetSystemTimeLow();
     if (c->arg & 1 || !s_space[i].valid || now - s_space[i].at > XLTS_DF_KEEP_US) {
-        unsigned cluster = 0, free_n = 0, clusters = 0, t0 = now;
-        how = XLTS_DF_COUNTED;
-        /* ms0: from its FAT; a PSP Go's internal storage only through the driver */
-        if (i != 0 || fat_count(&cluster, &free_n, &clusters) < 0) {
-            struct { u32 max_clusters, free_clusters, max_sectors, sector_size, sectors_per_cluster; } info;
-            void *p = &info;
-            memset(&info, 0, sizeof(info));
-            int r = sceIoDevctl(dev, 0x02425818, &p, sizeof(p), NULL, 0);
-            if (r < 0)
-                return reply(c, io_status(r), 0, r);
-            cluster = info.sector_size * info.sectors_per_cluster;
-            free_n = info.free_clusters;
-            clusters = info.max_clusters;
-            how = XLTS_DF_DRIVER;
-        }
+        unsigned t0 = now;
+        struct { u32 max_clusters, free_clusters, max_sectors, sector_size, sectors_per_cluster; } info;
+        void *p = &info;
+        memset(&info, 0, sizeof(info));
+        int r = sceIoDevctl(dev, 0x02425818, &p, sizeof(p), NULL, 0);
+        if (r < 0)
+            return reply(c, io_status(r), 0, r);
+        unsigned cluster = info.sector_size * info.sectors_per_cluster, free_n = info.free_clusters,
+                 clusters = info.max_clusters;
+        how = XLTS_DF_DRIVER;
         s_space[i].valid = 1;
         s_space[i].at = sceKernelGetSystemTimeLow();
         s_space[i].cluster = cluster;
         s_space[i].free_clusters = free_n;
         s_space[i].total_bytes = (unsigned long long)cluster * clusters;
-        LOG("df %s: %u of %u clusters of %u bytes free, %s, %u ms", dev, free_n, clusters, cluster,
-            how == XLTS_DF_DRIVER ? "the driver's count" : "from the FAT", (s_space[i].at - t0) / 1000);
+        LOG("df %s: %u of %u clusters of %u bytes free, the driver's count, %u ms", dev, free_n, clusters, cluster,
+            (s_space[i].at - t0) / 1000);
     }
     XltsDf *d = (XltsDf *)s_buf;
     long long fc = s_space[i].free_clusters < 0 ? 0 : s_space[i].free_clusters;

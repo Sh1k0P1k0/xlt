@@ -159,10 +159,6 @@ cc -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-pointer-
 build/viewer_preview build/pictures build/viewer_frames
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_lrc tests/test_lrc.c src/lrc.c src/textenc.c
 build/test_lrc
-# Free space from the FAT (fatcount.c) against fsck.fat, on FAT16, FAT32 and FAT32 behind an MBR.
-python3 -I tests/make_fat.py $F
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_fatcount tests/test_fatcount.c src/fatcount.c
-build/test_fatcount $F
 # USB sync's path rules (plugin/xltsync/syncpath.c): what the PC may read and change, save data included.
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Iplugin/xltsync -o build/test_syncpath tests/test_syncpath.c \
    plugin/xltsync/syncpath.c

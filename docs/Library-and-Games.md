@@ -108,7 +108,8 @@ with apitype 0x120, or an installed update (`PSP/GAME/<ID>/PBOOT.PBP`) with 0x16
 **Copy to Memory Stick** (`src/umddump.c`, dialog `src/dumpdlg.c`) makes `ISO/Title [ID].iso` from the disc, a
 plain ISO (XLT Tool can make a CSO of it on the PC). The disc is read raw through `umd0:`, whose reads and seeks
 count 2048-byte sectors; its end is the disc's size (the volume descriptor's size is the fallback). It first
-counts the free space from the FAT and refuses if the ISO won't fit. The copy goes to `<name>.xltpart` and is
+asks the PSP driver for the free space (the dialog says the PSP pauses for about 12 s the first time after
+XLT starts) and refuses if the ISO won't fit. The copy goes to `<name>.xltpart` and is
 renamed only once every sector is in and the size is right, so a stopped or failed copy (○ then Stop, the disc
 taken out, the PSP put to sleep, a sector that won't read after a few tries) is deleted, never left as a broken
 ISO; unreadable sectors are never filled with zeros. The dialog shows the progress, speed and time left; the PSP

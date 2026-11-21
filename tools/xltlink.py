@@ -11,7 +11,7 @@ On the PSP: XLT > Settings > XLT > USB sync (On), then connect the cable.
     xltlink.py rm [-r] PATH...            delete files or empty folders (-r: folders with what is in them)
     xltlink.py mv FROM TO                 rename (in the same folder; the PSP may refuse others)
     xltlink.py mkdir PATH                 make a folder, with its parents
-    xltlink.py df [--fresh] [ms0:|ef0:]   free space (counted from the FAT, ~1 s; then kept for a minute)
+    xltlink.py df [--fresh] [ms0:|ef0:]   free space (the PSP's own count, ~12 s the first time; then kept for a minute)
     xltlink.py selftest [DIR]             try every command on test files in DIR (default ms0:/DOWNLOADS/xltlink-test)
     xltlink.py speed [--mb N]             raw link speed, nothing written
     xltlink.py ctl                        the Windows (WinUSB) descriptors, as Windows would ask
@@ -75,7 +75,7 @@ POWER_S = struct.Struct("<iiii")    # battery %, charging, plugged in, minutes l
 
 TIMEOUT = 5000          # ms, a command and its reply
 DATA_TIMEOUT = 30000    # ms, one transfer of a file (the stick can pause to allocate)
-DF_TIMEOUT = 90000      # ms, counting free clusters on a big card (the driver's way, if the FAT can't be read)
+DF_TIMEOUT = 90000      # ms, the PSP driver counting free clusters on a big card (~12 s on 128 GB)
 TREE_TIMEOUT = 600000   # ms, deleting a folder with thousands of files
 
 MODELS = {0: "PSP-1000", 1: "PSP-2000", 2: "PSP-3000", 3: "PSP-3000", 4: "PSP Go", 6: "PSP-3000",
@@ -619,7 +619,7 @@ def cmd_mkdir(link: Link, a):
 def cmd_df(link: Link, a):
     t0 = time.perf_counter()
     free, total = link.df(a.dev or "ms0:", a.fresh)
-    how = {DF_COUNTED: "counted from the FAT", DF_KEPT: "kept from the last count",
+    how = {DF_COUNTED: "counted from the FAT (older XLT)", DF_KEPT: "kept from the last count",
            DF_DRIVER: "the PSP's own count"}.get(link.df_how, "?")
     print(f"{a.dev or 'ms0:'} {human(free)} free of {human(total)} ({how}, {time.perf_counter() - t0:.1f} s)")
 

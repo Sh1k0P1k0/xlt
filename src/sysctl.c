@@ -21,7 +21,6 @@
 #include "sysctl.h"
 #include "shotpng.h"
 #include "ark.h"
-#include "fatcount.h"
 
 int scePowerRequestSuspend(void);
 int scePowerRequestColdReset(int unk);
@@ -387,6 +386,19 @@ void sysctl_storage_load(const char *app_dir)
 
 int sysctl_storage_date(void) { return s_storage_date; }
 
+static int s_driver_counted; /* the driver counted since XLT started: it answers at once now */
+
+int sysctl_storage_pause_s(void)
+{
+    if (s_driver_counted)
+        return 0;
+    /* ~12 s for a 128 GB card on a PSP-E1004 (it walks the whole FAT): in step with the
+     * card's size as last measured; a card never measured is taken as a big one */
+    uint64_t gb = s_storage[0].ok ? s_storage[0].total >> 30 : 128;
+    int s = (int)((gb * 12 + 127) / 128);
+    return s < 2 ? 2 : s;
+}
+
 int sysctl_storage_measure(void)
 {
     SceInt64 t0 = sceKernelGetSystemTimeWide();
@@ -397,6 +409,7 @@ int sysctl_storage_measure(void)
         s_storage[k].free = f;
         s_storage[k].total = t;
     }
+    s_driver_counted = 1;
     storage_save();
     return (int)((sceKernelGetSystemTimeWide() - t0) / 1000);
 }
@@ -417,171 +430,6 @@ static void storage_save(void)
         sceIoWrite(fd, text, n);
         sceIoClose(fd);
     }
-}
-
-/* Counting the Memory Stick's free clusters ourselves (fatcount.c): the FAT is
- * read from the raw partition in chunks by a thread, so the UI keeps running and
- * can show how far it got. The driver's own count (above) holds the whole PSP
- * instead. The block device is opened from user mode if the firmware lets us,
- * otherwise through the kernel's IoFileMgr (kubridge), as installers do. */
-#define NID_IO_OPEN   0x109F50BC
-#define NID_IO_READ   0x6A638D83
-#define NID_IO_CLOSE  0x810C4BC3
-#define NID_IO_LSEEK32 0x68963324
-#define COUNT_CHUNK (64 * 1024)
-
-static struct {
-    volatile int state;     /* COUNT_* */
-    volatile int permille;
-    volatile int cancel;
-    SceUID thread;
-    int kernel;             /* the fd is a kernel one: every call goes through kubridge */
-    SceUID fd;
-    void *k_open, *k_read, *k_close, *k_seek;
-    char how[48];           /* for the log: which device, which way */
-    int ms;
-} K;
-
-static int kcall3(void *f, u32 a1, u32 a2, u32 a3)
-{
-    KernelCallArg a;
-    memset(&a, 0, sizeof(a));
-    a.arg1 = a1;
-    a.arg2 = a2;
-    a.arg3 = a3;
-    return kuKernelCall(f, &a) < 0 ? -1 : (int)a.ret1;
-}
-
-static int raw_open(const char *dev)
-{
-    K.kernel = 0;
-    K.fd = sceIoOpen(dev, PSP_O_RDONLY, 0);
-    if (K.fd >= 0)
-        return 0;
-    if (!K.k_open) {
-        K.k_open = (void *)sctrlHENFindFunction("sceIOFileManager", "IoFileMgrForKernel", NID_IO_OPEN);
-        K.k_read = (void *)sctrlHENFindFunction("sceIOFileManager", "IoFileMgrForKernel", NID_IO_READ);
-        K.k_close = (void *)sctrlHENFindFunction("sceIOFileManager", "IoFileMgrForKernel", NID_IO_CLOSE);
-        K.k_seek = (void *)sctrlHENFindFunction("sceIOFileManager", "IoFileMgrForKernel", NID_IO_LSEEK32);
-    }
-    if (!K.k_open || !K.k_read || !K.k_close || !K.k_seek)
-        return -1;
-    K.fd = kcall3(K.k_open, (u32)dev, PSP_O_RDONLY, 0);
-    K.kernel = 1;
-    return K.fd >= 0 ? 0 : -1;
-}
-
-static int raw_read(void *buf, int n)
-{
-    return K.kernel ? kcall3(K.k_read, (u32)K.fd, (u32)buf, (u32)n) : sceIoRead(K.fd, buf, n);
-}
-
-static int raw_seek(u32 at)
-{
-    return K.kernel ? kcall3(K.k_seek, (u32)K.fd, at, PSP_SEEK_SET) : sceIoLseek32(K.fd, (int)at, PSP_SEEK_SET);
-}
-
-static void raw_close(void)
-{
-    if (K.fd < 0) return;
-    if (K.kernel) kcall3(K.k_close, (u32)K.fd, 0, 0);
-    else sceIoClose(K.fd);
-    K.fd = -1;
-}
-
-static int count_thread(SceSize args, void *argp)
-{
-    SceInt64 t0 = sceKernelGetSystemTimeWide();
-    static unsigned char buf[COUNT_CHUNK] __attribute__((aligned(64)));
-    FatGeom g;
-    u32 part = 0;
-    int ok = -1;
-    /* the partition itself; failing that the whole stick, through its MBR */
-    if (raw_open("msstor0p1:") == 0 && raw_read(buf, 512) == 512 && fat_parse_boot(buf, &g) == 0) {
-        snprintf(K.how, sizeof(K.how), "msstor0p1: (%s)", K.kernel ? "kernel" : "user");
-        ok = 0;
-    } else {
-        raw_close();
-        if (raw_open("msstor:") == 0 && raw_read(buf, 512) == 512) {
-            int64_t lba = fat_mbr_first(buf);
-            if (lba > 0 && lba < 0x400000 && raw_seek((u32)lba * 512) >= 0 && raw_read(buf, 512) == 512 &&
-                fat_parse_boot(buf, &g) == 0) {
-                part = (u32)lba * 512;
-                snprintf(K.how, sizeof(K.how), "msstor: at sector %u (%s)", (unsigned)lba, K.kernel ? "kernel" : "user");
-                ok = 0;
-            }
-        }
-    }
-    uint32_t free_n = 0, done = 0;
-    if (ok == 0) {
-        /* whole sectors: a block device reads nothing else */
-        uint32_t start = g.fat_offset / g.sector * g.sector, skip = g.fat_offset - start;
-        uint32_t want = skip + g.fat_bytes;
-        if (raw_seek(part + start) < 0)
-            ok = -1;
-        while (ok == 0 && done < want) {
-            if (K.cancel) { ok = -2; break; }
-            uint32_t n = want - done < COUNT_CHUNK ? (want - done + g.sector - 1) / g.sector * g.sector : COUNT_CHUNK;
-            int got = raw_read(buf, (int)n);
-            if (got < (int)n) { ok = -1; break; }
-            uint32_t lo = done < skip ? skip - done : 0; /* bytes of this chunk before the FAT */
-            uint32_t at = done + lo - skip, len = n - lo;
-            if (at + len > g.fat_bytes) len = g.fat_bytes - at;
-            free_n += fat_count_free(&g, buf + lo, len, at);
-            done += n;
-            K.permille = (int)((uint64_t)done * 1000 / want);
-        }
-    }
-    raw_close();
-    K.ms = (int)((sceKernelGetSystemTimeWide() - t0) / 1000);
-    if (ok == 0) {
-        s_storage[0].free = (uint64_t)free_n * g.cluster;
-        s_storage[0].total = (uint64_t)g.clusters * g.cluster;
-        s_storage[0].ok = 1;
-        storage_save();
-        K.permille = 1000;
-        K.state = COUNT_DONE;
-    } else {
-        K.state = ok == -2 ? COUNT_CANCELLED : COUNT_FAILED;
-    }
-    return 0;
-}
-
-int sysctl_storage_count_start(void)
-{
-    if (K.state == COUNT_RUNNING)
-        return 0;
-    if (K.thread > 0) {
-        sceKernelWaitThreadEnd(K.thread, NULL);
-        sceKernelDeleteThread(K.thread);
-        K.thread = 0;
-    }
-    K.fd = -1;
-    K.cancel = 0;
-    K.permille = 0;
-    K.how[0] = 0;
-    K.state = COUNT_RUNNING;
-    K.thread = sceKernelCreateThread("xl_space", count_thread, 0x30, 0x4000, PSP_THREAD_ATTR_USER, NULL);
-    if (K.thread < 0 || sceKernelStartThread(K.thread, 0, NULL) < 0) {
-        K.thread = 0;
-        K.state = COUNT_FAILED;
-        return -1;
-    }
-    return 0;
-}
-
-int sysctl_storage_count_state(int *permille)
-{
-    if (permille) *permille = K.permille;
-    return K.state;
-}
-
-void sysctl_storage_count_cancel(void) { K.cancel = 1; }
-
-const char *sysctl_storage_count_how(int *ms)
-{
-    if (ms) *ms = K.ms;
-    return K.how;
 }
 
 int sysctl_storage(const char *dev, uint64_t *free_bytes, uint64_t *total_bytes)

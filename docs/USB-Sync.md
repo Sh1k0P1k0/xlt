@@ -114,7 +114,7 @@ magic "XLTS" (u32) · command (u16) · status (u16) · sequence (u32) · length 
 | POWER | the battery: percent, charging, on the charger, time left (protocol 4), for XLT Tool's status line |
 | DELETE / RENAME | a file or an empty folder; a rename within the same device |
 | DELETE_TREE | a folder and everything in it, done by the PSP in one command (a game's folder, a save) |
-| DF | free space: counted from the FAT (~1 s), then kept for a minute and moved with sync's own changes (below) |
+| DF | free space: the PSP driver's count, then kept for a minute and moved with sync's own changes (below) |
 | ECHO, SINK, SOURCE, CTLLOG | tests: data integrity, raw speed both ways, the control requests seen |
 
 The full definition is `plugin/xltsync/xltsync.h`.
@@ -173,14 +173,15 @@ The rules are `plugin/xltsync/syncpath.c`, checked on the PC by `tests/test_sync
 
 ### Free space
 
-The PSP's own free-space call walks the whole FAT inside the driver and holds the PSP
-for ~12 s on a 128 GB card. The module reads the FAT from the raw partition instead
-(`msstor0p1:`, or the stick through its MBR) and counts the free clusters itself with
-XLT's own counter (`src/fatcount.c`, the one Settings > About uses): about a second on
-a 120 GB card. The count is kept for 60 s and moved with every file sync keeps or
-deletes, so asking again is instant; DF with argument 1 counts again. The reply's
-argument says which it was (0 counted, 1 kept, 2 the driver's count, used for a PSP
-Go's internal storage or if the partition can't be read).
+Free space is the PSP driver's own count (devctl 0x02425818). It walks the whole FAT
+inside the driver and holds the PSP for ~12 s on a 128 GB card the first time after XLT
+starts, then answers at once. The count is kept for 60 s and moved with every file sync
+keeps or deletes; DF with argument 1 counts again. The reply's argument says which it
+was (1 kept, 2 the driver's count; 0, counted from the FAT, only comes from older XLT).
+
+The module used to read the FAT itself from the raw partition (`msstor0p1:`), about a
+second instead of 12. That was removed (2026-11-21): reading the raw partition beside
+the FAT driver's own writes wrote a copy of the boot sector over a folder's entries.
 
 ## What XLT does while sync is on
 

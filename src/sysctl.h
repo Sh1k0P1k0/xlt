@@ -70,18 +70,16 @@ void sysctl_restart(void);
  * Instant; -1 if never measured or there is no such device. */
 int sysctl_storage(const char *dev, uint64_t *free_bytes, uint64_t *total_bytes);
 void sysctl_storage_load(const char *app_dir); /* cache/storage.txt, at startup */
-/* The real measurement (walks the FAT: ~12 s on a big card, nothing else runs
- * meanwhile). Only when the user asks (Settings > About). Returns the time it took, in ms. */
+/* The real measurement: the PSP driver's own count. The first one after XLT starts
+ * walks the FAT and holds the whole PSP (~12 s on a 128 GB card), later ones are
+ * instant. Only when the user asks (Settings > About) or before a UMD dump, with the
+ * pause announced on screen first. Returns the time it took, in ms. Never read the
+ * raw partition (msstor0p1:) instead: see settings.c. */
 int sysctl_storage_measure(void);
+/* About how many seconds sysctl_storage_measure will hold the PSP: 0 once it ran
+ * since XLT started, else an estimate from the card's size. For the on-screen note. */
+int sysctl_storage_pause_s(void);
 int sysctl_storage_date(void); /* yyyymmdd of the last measurement, 0 = never */
-/* The Memory Stick's free space counted by a thread from its FAT (fatcount.c),
- * with progress, while everything else keeps running. COUNT_FAILED means the raw
- * stick couldn't be read: sysctl_storage_measure is the way left. */
-enum { COUNT_IDLE, COUNT_RUNNING, COUNT_DONE, COUNT_FAILED, COUNT_CANCELLED };
-int sysctl_storage_count_start(void);
-int sysctl_storage_count_state(int *permille); /* COUNT_*, progress 0..1000 */
-void sysctl_storage_count_cancel(void);
-const char *sysctl_storage_count_how(int *ms); /* the device used and the time taken, for the log */
 
 /* Saves the frame currently on screen as a PNG in <dev>/PICTURE/. 0 on success. */
 int sysctl_screenshot(const char *dev, char *name_out, int n);

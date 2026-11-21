@@ -1,6 +1,6 @@
 # XLT - PSP launcher (PSPSDK / pspdev)
 TARGET = xlt
-OBJS = src/main.o src/fatcount.o src/gamesfile.o src/gfx.o src/ui.o src/input.o src/system.o src/library.o \
+OBJS = src/main.o src/gamesfile.o src/gfx.o src/ui.o src/input.o src/system.o src/library.o \
        src/disc.o src/probe.o src/thumbconv.o src/thumbs.o src/launch.o src/history.o \
        src/ark.o src/arktext.o src/sysctl.o src/gamecfg.o src/opts.o src/cc.o \
        src/match.o src/search.o src/plugtext.o src/plugins.o src/bg.o \
@@ -82,7 +82,7 @@ EXTRA_CLEAN += build/xltcast_data.h plugin/xltcast/xltcast.prx plugin/xltcast/xl
 # The USB sync link: a kernel PRX carried inside XLT, which writes it to its own folder
 # and loads it while sync is on (src/usbsync.c).
 XLTSYNC_SRC = plugin/xltsync/main.c plugin/xltsync/xltsync.h plugin/xltsync/syncpath.c plugin/xltsync/syncpath.h \
-              src/fatcount.c src/fatcount.h plugin/xltsync/exports.exp plugin/xltsync/Makefile
+              plugin/xltsync/exports.exp plugin/xltsync/Makefile
 plugin/xltsync/xltsync.prx: $(XLTSYNC_SRC)
 	$(MAKE) -C plugin/xltsync
 build/xltsync_data.h: plugin/xltsync/xltsync.prx tools/bake_bin.py

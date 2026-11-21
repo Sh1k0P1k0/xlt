@@ -1,7 +1,7 @@
 # xltsync: XLT's USB link to the PC (a kernel PRX XLT loads while sync is on).
 # XLT's own Makefile builds it and embeds it.
 TARGET = xltsync
-OBJS = main.o syncpath.o fatcount.o
+OBJS = main.o syncpath.o
 PRX_EXPORTS = exports.exp
 
 BUILD_PRX = 1
@@ -16,8 +16,5 @@ LIBS = -lpspusbbus_driver -lpspsystemctrl_kernel -lpspsysclib_kernel_660 -lpspth
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak
 
-main.o: main.c xltsync.h syncpath.h ../../src/fatcount.h
+main.o: main.c xltsync.h syncpath.h
 syncpath.o: syncpath.c syncpath.h
-# free space from the FAT: XLT's own counter (src/fatcount.c), built here (after build.mak: the first rule is the default goal) for the kernel
-fatcount.o: ../../src/fatcount.c ../../src/fatcount.h
-	$(CC) $(CFLAGS) -c -o $@ $<

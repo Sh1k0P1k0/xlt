@@ -109,17 +109,17 @@ static int dump(void)
     }
     s_st.total = (uint64_t)sectors * SECTOR;
 
-    /* Room for it? The free space counted from the FAT (about a second). */
-    if (sysctl_storage_count_start() == 0) {
-        int k;
-        while ((k = sysctl_storage_count_state(NULL)) == COUNT_RUNNING && !s_stop)
-            sceKernelDelayThread(50 * 1000);
-        if (s_stop) {
-            sysctl_storage_count_cancel();
-            goto done;
-        }
+    /* Room for it? The PSP driver's own count: it holds the PSP ~12 s the first time
+     * after XLT starts, then answers at once. Never the raw partition (sysctl.c). The
+     * dialog says so first (pause_s), drawn before the PSP stops. */
+    s_st.pause_s = sysctl_storage_pause_s();
+    if (s_st.pause_s > 0)
+        sceKernelDelayThread(200 * 1000);
+    int counted = sysctl_storage_measure() >= 0;
+    s_st.pause_s = 0;
+    if (counted) {
         uint64_t fr, tot;
-        if (k == COUNT_DONE && sysctl_storage("ms0:", &fr, &tot) == 0 && fr < s_st.total + SPARE) {
+        if (sysctl_storage("ms0:", &fr, &tot) == 0 && fr < s_st.total + SPARE) {
             char need[16], have[16];
             format_size(need, sizeof(need), s_st.total);
             format_size(have, sizeof(have), fr);

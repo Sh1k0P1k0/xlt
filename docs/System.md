@@ -50,19 +50,17 @@ knob slides); an ARK setting that is on for some software only shows that next t
   (and ARK's copy in memory, when it is set) and leaves `cache/launcher.paused`; at XLT's next start it is
   turned back on (psp5's approach). Until then the PSP boots into the XMB. Checked on ARK-5, where only
   `SETTINGS.TXT` counts. `cache/scan.log` says how XLT was started and what it did.
-- **Free and used space (About):** going into About counts them once per XLT start, with a "Measuring free
-  and used space" dialog, a progress bar and ○ to stop. Scrolling past About doesn't count; it shows the
-  saved values (so after copying files with XLT, the numbers update at the next start).
+- **Free and used space (About):** the count is the PSP driver's own. It walks the whole FAT inside the driver
+  and holds the system for ~12 s on a 128 GB card the first time after XLT starts; the driver keeps it, so
+  later counts are instant. So the first time About's rows are entered, a dialog asks "Measure free space?" and
+  says how long the PSP will pause (estimated from the card's size): ✕ Measure, ○ Not now. While it scans, a
+  "Scanning the Memory Stick, please wait" dialog stays on screen, then what it found shows (✕ OK, or it goes
+  by itself). The Memory Stick row measures again with ✕. Scrolling past About doesn't ask; it shows the saved
+  values. `cache/scan.log` says how long it took.
 
-  The PSP's own free-space call walks the whole FAT inside the driver and holds the system for ~12 s on a
-  128 GB card, even from another thread. So XLT reads the FAT itself instead: a thread reads it in 64 KB chunks
-  from the raw partition and counts the free clusters (`src/fatcount.c`, FAT16 and FAT32), while the UI keeps
-  running. On a PSP-E1004 with a 120 GB card that takes about 1.1 s. The device is `msstor0p1:` opened from user
-  mode, otherwise through the kernel's IoFileMgr (kubridge), otherwise `msstor:` and its MBR.
-
-  If none of these can be read, the dialog says the PSP will pause for about 12 s and the driver's count runs;
-  the driver keeps that count, so later visits are instant. `cache/scan.log` says which way it went and how
-  long it took.
+  Up to 1.3.0, XLT read the FAT itself from the raw partition (`msstor0p1:`) to keep running meanwhile. Doing
+  that while the PSP's FAT driver was writing (a screen recording being saved) once wrote a copy of the boot
+  sector over `VIDEO`'s entries, so 1.3.1 removed it: the raw partition is never read while the stick is in use.
 - **HOME:** XLT shows its own "Quit XLT?" dialog in place of the system's (`src/quitdlg.c`): Yes (where the cursor
   starts, so HOME then ✕ quits as before) leaves to the XMB the way the system's Yes did, No, ○ or HOME again
   closes it. The system's dialog is switched off with `sceImposeSetHomePopup` (6.60+ NID `0xC08C41EF`) and HOME is
@@ -147,8 +145,8 @@ USB device (the kernel module `plugin/xltsync`, loaded by `src/usbsync.c`) takes
 or `tools/xltlink.py`, and the PSP's own FAT driver does the writing, so the stick never leaves XLT. Files
 arrive as `NAME.xltpart` and are renamed only once complete and their CRC-32 matches; only XLT's folders can
 be changed (and save folders in `PSP/SAVEDATA`, for XLT Tool's save backups); names are written in Shift-JIS, as
-the PSP keeps them. Whole folders can be deleted in one command, and free space is counted from the FAT in about a
-second. The library rescans by itself after the
+the PSP keeps them. Whole folders can be deleted in one command, and free space comes from the PSP driver's own count (kept
+for a minute and moved with sync's own changes). The library rescans by itself after the
 last change, a USB icon and "From PC 45%" show in the status bar, and USB mode pauses sync while it is on.
 64 MB writes at 8.3 MB/s (USB mode: 9.6). How it works, and why it differs from USB mode:
 [USB sync, in depth](USB-Sync.md).

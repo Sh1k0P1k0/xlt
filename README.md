@@ -18,6 +18,15 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
 
+## New in 1.3.1
+
+- **Fixed: a rare bug that could wipe videos and other files from the Memory Stick.** It could happen when the
+  free space was being measured (**Settings → About**, or USB sync with XLT Tool) while the PSP was saving
+  something, like a screen recording. XLT now leaves the measuring to the PSP itself, which is always safe.
+- **About asks before measuring.** The PSP's own count is slower: the first time after XLT starts, the PSP
+  pauses for about 10 seconds on a big card. So About now asks first, shows "please wait" while it scans, and
+  then shows the result. The Memory Stick row measures again with ✕.
+
 ## New in 1.3.0
 
 - **XLT Cast: your game on the PC.** The game you're playing on the PSP shows live in

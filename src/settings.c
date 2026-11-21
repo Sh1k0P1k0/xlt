@@ -74,7 +74,7 @@
 enum { SRC_ARK, SRC_REG, SRC_PLUG, SRC_XLT, SRC_ACTION, SRC_INFO };
 enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ, X_XFADE, X_CAST };
 static const char *const O_LEVEL[LEVEL_COUNT] = {"Off", "By song", "By album"};
-enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST, A_ARRANGE };
+enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST, A_ARRANGE, A_SPACE };
 static int s_clear_armed; /* ✕ once on Clear play history: the next ✕ clears */
 enum { C_XLT, C_GAMES, C_PLUGINS, C_POWER, C_SOUND, C_NETWORK, C_SYSTEM, C_ABOUT, C_COUNT };
 _Static_assert(C_COUNT == SETTINGS_SECTIONS, "settings.h's section count");
@@ -354,26 +354,30 @@ static void storage_text(const char *dev, char *out, int n)
     snprintf(out, n, "%s free of %s", a, b);
 }
 
-/* Free and used space are counted once each time XLT starts, when About's rows
- * are first entered (not when About is only highlighted on the way past): a thread reads the
- * Memory Stick's FAT (sysctl_storage_count_*) while a dialog shows how far it got,
- * and the rest of XLT keeps running. Moving off About or ○ stops it. If the raw
- * stick can't be read, the PSP driver's own count is the way left: it holds the
- * whole PSP (~12 s the first time after XLT starts, instant later), so the
- * dialog says so and is drawn before it starts. */
-enum { SP_IDLE, SP_COUNTING, SP_DONE, SP_DRIVER };
+/* Free and used space come from the PSP driver's own count. The first one after
+ * XLT starts holds the whole PSP (~12 s on a 128 GB card), later ones are instant.
+ * So the first time About's rows are entered (not when About is only highlighted
+ * on the way past) a dialog asks first and says how long the PSP will pause; while
+ * it scans, a "please wait" dialog stays on screen, then the result shows. The
+ * Memory Stick row (Cross) measures again any time.
+ * XLT once read the FAT itself from the raw partition (msstor0p1:) to keep running
+ * meanwhile: never again. Beside the FAT driver's own writes (a recording going to
+ * VIDEO) that wrote a copy of the boot sector over VIDEO's entries (2026-11-21). */
+enum { SP_IDLE, SP_ASK, SP_SCAN, SP_DONE };
 static int s_space;          /* SP_*: the dialog is up unless SP_IDLE (also declared above settings_input) */
-static int s_space_frames;   /* frames the dialog has been up */
-static int s_space_raw = 1;  /* the raw count works (until it fails once) */
-static int s_measured_once;  /* the driver counted since XLT started: later ones are instant */
-static int s_counted;        /* counted since XLT started: About shows that from then on */
+static int s_space_frames;   /* frames the dialog has been in its state */
+static int s_space_secs;     /* the pause announced, in seconds */
+static int s_space_shown;    /* the state drawn: the last one, while the dialog fades out too */
+static int s_counted;        /* asked (or counted) since XLT started: entering About doesn't ask again */
 static Spring s_space_t;     /* the dialog: 0 hidden .. FX(1) shown */
+static void space_request(void);
 
 static void storage_items(Cat *c)
 {
     char buf[72];
     storage_text("ms0:", buf, sizeof(buf));
-    Item *it = add(c, "Memory Stick", "Counted the first time About is opened after XLT starts.", SRC_INFO, 0);
+    Item *it = add(c, "Memory Stick", "Cross measures the free space. The first time after XLT starts, the PSP pauses for a few seconds.",
+                   SRC_ACTION, A_SPACE);
     if (it)
         snprintf(it->text, sizeof(it->text), "%s", buf);
     uint64_t f, t;
@@ -892,6 +896,8 @@ static void run_action(Item *it)
         btntest_open();
     } else if (it->key == A_UPDATE) {
         upd_open();
+    } else if (it->key == A_SPACE) {
+        space_request();
     } else if (it->key == A_RESCAN) {
         if (library_scanning()) {
             ui_toast("Already scanning");
@@ -1127,8 +1133,9 @@ static void draw_update(int t)
     gfx_set_opacity(t);
 }
 
-static void space_cancel(void);
 static int s_space;
+static void space_scan(void);
+static void space_close(void);
 
 int settings_input(unsigned int p)
 {
@@ -1136,14 +1143,15 @@ int settings_input(unsigned int p)
         return 0;
     if (upd_input(p))
         return 1;
-    if (s_space) { /* the free-space dialog: ○ stops it, leaving About does too (settings_step) */
-        if (p & PSP_CTRL_CIRCLE) { /* stops it, and back to the sections as ○ always goes */
-            space_cancel();
-            S.col = 0;
+    if (s_space) { /* the free-space dialog: nothing gets past it */
+        if (s_space == SP_ASK && p & PSP_CTRL_CROSS) {
+            space_scan();
+            sfx_play(SFX_SELECT);
+        } else if (s_space != SP_SCAN && p & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) { /* Not now / OK: stays in About */
+            space_close();
             sfx_play(SFX_CLOSE);
-            return 1;
         }
-        if (p & (PSP_CTRL_CROSS | PSP_CTRL_RIGHT | PSP_CTRL_LEFT | PSP_CTRL_TRIANGLE | PSP_CTRL_SQUARE)) return 1;
+        return 1;
     }
     Cat *c = &s_cats[S.cat];
     if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
@@ -1187,14 +1195,13 @@ int settings_input(unsigned int p)
 
 static void measure_now(void)
 {
+    int first = sysctl_storage_pause_s() > 0;
     bg_flush(); /* nothing else may be using the stick meanwhile */
     int ms = sysctl_storage_measure();
     char msg[64];
-    snprintf(msg, sizeof(msg), "free space measured in %d ms (%s)", ms, s_measured_once ? "again" : "first time");
+    snprintf(msg, sizeof(msg), "free space measured in %d ms (%s)", ms, first ? "first time" : "again");
     library_note(msg);
 }
-
-static int s_space_drawn;    /* what the dialog shows: its last state, while it fades out too */
 
 static void space_close(void)
 {
@@ -1202,31 +1209,33 @@ static void space_close(void)
     spring_to(&s_space_t, 0);
 }
 
-static void space_start(void)
+static void space_set(int state)
 {
+    s_space = s_space_shown = state;
     s_space_frames = 0;
-    if (s_space_raw && sysctl_storage_count_start() == 0) {
-        s_space = SP_COUNTING;
-    } else if (s_measured_once) { /* the driver remembers: instant, no dialog needed */
-        measure_now();
-        s_counted = 1;
-        build();
-        return;
-    } else {
-        s_space = SP_DRIVER;
-    }
-    spring_snap(&s_space_t, 0);
-    spring_to(&s_space_t, FX(1));
-    if (s_space == SP_DRIVER) /* the PSP stops on this frame: no fading in */
-        spring_snap(&s_space_t, FX(1));
 }
 
-/* Stops a count still running (moving off About, ○). */
-static void space_cancel(void)
+/* The question first, unless the driver already counted (then it's instant). */
+static void space_request(void)
 {
-    if (s_space == SP_COUNTING)
-        sysctl_storage_count_cancel();
-    space_close();
+    s_counted = 1;
+    if (sysctl_storage_pause_s() == 0) {
+        measure_now();
+        build();
+        ui_toast("Free space measured");
+        return;
+    }
+    s_space_secs = sysctl_storage_pause_s();
+    space_set(SP_ASK);
+    spring_snap(&s_space_t, 0);
+    spring_to(&s_space_t, FX(1));
+}
+
+/* Cross on the question: the "please wait" dialog, fully drawn before the PSP stops. */
+static void space_scan(void)
+{
+    space_set(SP_SCAN);
+    spring_snap(&s_space_t, FX(1));
 }
 
 /* about: About is the section shown; inside: its rows are entered */
@@ -1234,10 +1243,10 @@ static int space_step(int about, int inside)
 {
     int dirty = 0;
     if (inside && !s_counted && s_space == SP_IDLE) {
-        space_start();
+        space_request();
         dirty = 1;
-    } else if (!about && s_space != SP_IDLE) {
-        space_cancel();
+    } else if (!about && (s_space == SP_ASK || s_space == SP_DONE)) {
+        space_close();
         dirty = 1;
     }
     int old = s_space_t.x;
@@ -1245,51 +1254,16 @@ static int space_step(int about, int inside)
     dirty |= s_space_t.x != old;
     if (s_space == SP_IDLE)
         return dirty;
-    s_space_drawn = s_space;
     s_space_frames++;
-    if (s_space == SP_COUNTING) {
-        static int shown_pm = -1;
-        int pm, st = sysctl_storage_count_state(&pm);
-        if (pm != shown_pm) { shown_pm = pm; dirty = 1; }
-        if (st == COUNT_DONE || st == COUNT_FAILED) {
-            int ms;
-            const char *how = sysctl_storage_count_how(&ms);
-            char msg[112];
-            if (st == COUNT_DONE)
-                snprintf(msg, sizeof(msg), "free space counted in %d ms from %s", ms, how);
-            else
-                snprintf(msg, sizeof(msg), "free space: the raw stick can't be read (%s), using the driver",
-                         how[0] ? how : "not opened");
-            library_note(msg);
-            if (st == COUNT_DONE) {
-                build();
-                s_counted = 1;
-                s_space = SP_DONE;
-                s_space_frames = 0;
-            } else {
-                s_space_raw = 0; /* not again this time XLT runs */
-                s_space = SP_DRIVER;
-                s_space_frames = 0;
-                spring_snap(&s_space_t, FX(1)); /* the PSP stops on this frame: fully shown */
-            }
-            dirty = 1;
-        }
-    } else if (s_space == SP_DONE) {
-        if (s_space_frames >= 24) /* a quick count still shows the dialog a moment, not a flicker */
-            space_close();
-    } else if (s_space == SP_DRIVER) {
-        /* the note is on screen first; then the driver holds the PSP until it's done */
-        if (s_space_frames > 4) {
-            measure_now();
-            s_measured_once = 1;
-            s_counted = 1;
-            build();
-            space_close();
-        }
+    if (s_space == SP_SCAN && s_space_frames > 3) {
+        measure_now(); /* the driver holds the PSP until it's done */
+        build();
+        space_set(SP_DONE);
+        dirty = 1;
+    } else if (s_space == SP_DONE && s_space_frames > 150) { /* ~2.5 s, or Cross / Circle */
+        space_close();
         dirty = 1;
     }
-    if (s_space != SP_IDLE)
-        s_space_drawn = s_space;
     return dirty;
 }
 
@@ -1394,7 +1368,8 @@ static void draw_wrapped(int x, int y, int w, const char *s, u32 color)
     }
 }
 
-/* The free-space dialog over About: what it does, how far it got, and ○ to stop. */
+/* The free-space dialog over About: the question, "please wait" while the PSP
+ * scans (the last frame drawn before it stops), then what it found. */
 static void draw_space(int t)
 {
     int a = s_space_t.x;
@@ -1407,29 +1382,40 @@ static void draw_space(int t)
     const int w = 320, h = 118, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2 + (256 - a) * 12 / 256;
     gfx_rrect(x, y, w, h, 12, C_SURFACE);
     int fb = gfx_line_h(FONT_BOLD), fs = gfx_line_h(FONT_SMALL);
-    gfx_text_center(FONT_BOLD, SCREEN_W / 2, y + 14, "Measuring free and used space", C_TEXT);
-    int ty = y + 14 + fb + 4;
-    if (s_space_drawn == SP_DRIVER) {
-        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty, "This takes about 12 s the first time.", C_MUTED);
-        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty + fs + 2, "The PSP won't respond until it's done.", C_MUTED);
+    char title[48], l1[64], l2[64];
+    l2[0] = 0;
+    static const Hint h_ask[] = {{ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Measure"},
+                                 {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Not now"}};
+    static const Hint h_ok[] = {{ICON_BTN_CROSS, NULL, C_BTN_CROSS, "OK"}};
+    const Hint *hh = NULL;
+    int hn = 0;
+    if (s_space_shown == SP_DONE) {
+        snprintf(title, sizeof(title), "Free space measured");
+        storage_text("ms0:", l1, sizeof(l1));
+        uint64_t f, tb;
+        if (sysctl_storage("ms0:", &f, &tb) == 0 && tb && f <= tb) {
+            char u[16];
+            format_size(u, sizeof(u), tb - f);
+            snprintf(l2, sizeof(l2), "%s used (%d %%)", u, (int)((tb - f) * 100 / tb));
+        }
+        hh = h_ok; hn = 1;
+    } else if (s_space_shown == SP_SCAN) {
+        snprintf(title, sizeof(title), "Scanning the Memory Stick");
+        snprintf(l1, sizeof(l1), "Please wait, about %d seconds.", s_space_secs);
+        snprintf(l2, sizeof(l2), "The PSP doesn't respond until it's done.");
     } else {
-        int pm = 0;
-        sysctl_storage_count_state(&pm);
-        if (s_space_drawn == SP_DONE) pm = 1000;
-        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty, s_space_drawn == SP_DONE ? "Done." : "Reading the Memory Stick's file table...",
-                        C_MUTED);
-        const int bx = x + 24, bw = w - 48 - 44, by = ty + fs + 12;
-        gfx_rrect(bx, by, bw, 6, 3, C_RAISED);
-        int fill = bw * pm / 1000;
-        if (fill >= 6)
-            gfx_rrect(bx, by, fill, 6, 3, C_ACCENT);
-        char pct[16];
-        snprintf(pct, sizeof(pct), "%d %%", pm / 10);
-        gfx_text_right(FONT_SMALL, x + w - 24, by + 3 - fs / 2, pct, C_TEXT);
-        static const Hint hint[] = {{ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Stop"}};
-        if (s_space_drawn != SP_DONE)
-            ui_draw_hints(hint, 1, SCREEN_W / 2, y + h - fs - 10);
+        snprintf(title, sizeof(title), "Measure free space?");
+        snprintf(l1, sizeof(l1), "The PSP scans the Memory Stick's file table.");
+        snprintf(l2, sizeof(l2), "It pauses for about %d seconds while it does.", s_space_secs);
+        hh = h_ask; hn = 2;
     }
+    gfx_text_center(FONT_BOLD, SCREEN_W / 2, y + 14, title, C_TEXT);
+    int ty = y + 14 + fb + 4;
+    gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty, l1, s_space_shown == SP_DONE ? C_TEXT : C_MUTED);
+    if (l2[0])
+        gfx_text_center(FONT_SMALL, SCREEN_W / 2, ty + fs + 2, l2, C_MUTED);
+    if (hh)
+        ui_draw_hints(hh, hn, SCREEN_W / 2, y + h - fs - 10);
     gfx_set_opacity(t);
 }
 

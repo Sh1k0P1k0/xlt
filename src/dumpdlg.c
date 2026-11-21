@@ -179,7 +179,14 @@ void dumpdlg_draw(void)
         button(cx + gap / 2, by, bw, bh, "Keep copying", !D.stop_yes);
         hints = ask_hints; nh = 2;
     } else if (st->state == DUMP_PREPARING || st->state == DUMP_IDLE) {
-        gfx_text_center(FONT_SMALL, cx, ty + 8, "Checking the disc and the free space...", C_MUTED);
+        if (st->pause_s > 0) { /* the driver's count: the PSP stops on this frame */
+            char l[64];
+            snprintf(l, sizeof(l), "The PSP pauses for about %d seconds.", st->pause_s);
+            gfx_text_center(FONT_SMALL, cx, ty, "Checking the free space...", C_MUTED);
+            gfx_text_center(FONT_SMALL, cx, ty + fs + 2, l, C_MUTED);
+        } else {
+            gfx_text_center(FONT_SMALL, cx, ty + 8, "Checking the disc and the free space...", C_MUTED);
+        }
         hints = copy_hints; nh = 1;
     } else if (st->state == DUMP_COPYING) {
         int pct = st->total ? (int)(st->done * 1000 / st->total) : 0;
