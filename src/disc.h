@@ -4,12 +4,12 @@
 
 #include <stdint.h>
 
-enum { DISC_ISO, DISC_CSO, DISC_ZSO };
+enum { DISC_ISO, DISC_CSO, DISC_ZSO, DISC_DAX };
 
 typedef struct {
     int fd;
     int format;
-    uint32_t block_size, align, ver;
+    uint32_t block_size, align, ver, dax_frames, dax_nc_areas;
     uint64_t total_bytes;
     uint8_t *block;  /* one decompressed block */
     uint8_t *cbuf;   /* compressed input */

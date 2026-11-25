@@ -146,7 +146,7 @@ static int ftype(const char *name, int dir)
     if (audio_format(name) != AUDIO_NONE) return FT_MUSIC;
     if (ext_in(e, "mp4 m4v pmf")) return FT_VIDEO;
     if (ext_in(e, "pdf")) return FT_PDF;
-    if (ext_in(e, "iso cso zso")) return FT_DISC;
+    if (ext_in(e, "iso cso zso dax")) return FT_DISC;
     if (ext_in(e, "pbp")) return FT_PBP;
     if (ext_in(e, "zip rar 7z gz bz2 xz tar")) return FT_ARCHIVE;
     if (ext_in(e, "txt log ini cfg conf md csv tsv json xml htm html c h cpp hpp cc py lua js sh bat nfo diz "

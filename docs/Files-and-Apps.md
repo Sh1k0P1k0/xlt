@@ -20,7 +20,7 @@ storage), the folders opened last (kept in `cache/files.txt`) and **Browse**, wh
 | MP4 / M4V / PMF | the video player |
 | TXT, LOG, INI, CFG, MD, JSON, XML, HTML, SRT, C, LUA, ... | the reader, as text |
 | PDF | the reader, page by page |
-| ISO / CSO / ZSO, EBOOT.PBP | starts it, like a game from the library |
+| ISO / CSO / ZSO / DAX, EBOOT.PBP | starts it, like a game from the library |
 | ZIP | the menu, with what can be done with it (see below) |
 | anything else | the reader: as text if the bytes look like text, else as hex |
 

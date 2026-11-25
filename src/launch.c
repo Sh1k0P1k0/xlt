@@ -173,7 +173,8 @@ int launch_entry(const Entry *e, int driver)
     switch (kind) {
     case KIND_ISO:
     case KIND_CSO:
-    case KIND_ZSO: launch_disc(id, driver); break;
+    case KIND_ZSO: 
+    case KIND_DAX: launch_disc(id, driver); break;
     case KIND_PSN: launch_psn(); break;
     case KIND_PS1: launch_pops(); break;
     case KIND_HOMEBREW: launch_homebrew(); break;

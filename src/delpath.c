@@ -37,7 +37,7 @@ int del_target(const char *path, int is_eboot, const char *self_path, char *out,
         return -1;
 
     if (!is_eboot) {
-        if (!has_ext(path, ".iso") && !has_ext(path, ".cso") && !has_ext(path, ".zso"))
+        if (!has_ext(path, ".iso") && !has_ext(path, ".cso") && !has_ext(path, ".zso") && !has_ext(path, ".dax"))
             return -1;
         if ((int)strlen(path) >= n)
             return -1;

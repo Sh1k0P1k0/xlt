@@ -1463,8 +1463,8 @@ int ui_update(const Input *in, int status_changed)
 
 const char *kind_name(int k)
 {
-    static const char *n[] = {"ISO", "CSO", "ZSO", "PSN", "PS1", "Homebrew", "Picture", "Music", "Video", "UMD"};
-    return k < 10 ? n[k] : "?";
+    static const char *n[] = {"ISO", "CSO", "ZSO", "DAX", "PSN", "PS1", "Homebrew", "Picture", "Music", "Video", "UMD"};
+    return k < 11 ? n[k] : "?";
 }
 
 const char *region_name(const char *id)

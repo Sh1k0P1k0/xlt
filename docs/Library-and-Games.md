@@ -4,8 +4,8 @@
 
 ## Library
 
-- **What is found:** `ISO/` (and two levels of subfolders, except `ISO/VIDEO`) for `.iso`, `.cso` (v1 and v2)
-  and `.zso`, plus `PSP/GAME/*/EBOOT.PBP` for homebrew (`MG`), PSN (`EG`) and PS1 (`ME`). A folder in
+- **What is found:** `ISO/` (and two levels of subfolders, except `ISO/VIDEO`) for `.iso`, `.cso` (v1 and v2),
+  `.zso` and `.dax`, plus `PSP/GAME/*/EBOOT.PBP` for homebrew (`MG`), PSN (`EG`) and PS1 (`ME`). A folder in
   `PSP/GAME/` without its own `EBOOT.PBP` (a category folder such as `CAT_Emulators`) is searched one level
   deeper. The folder list is `g_scan_dirs` in `src/delpath.c`. Both `ms0:` and
   `ef0:` (PSP Go) are scanned. Game updates (`PG`) and XLT itself are skipped. DAX and JSO are not read yet.
@@ -27,7 +27,7 @@
 
 | Kind | How |
 |---|---|
-| ISO / CSO / ZSO | `sctrlSESetUmdFile` + `sctrlSESetBootConfFileIndex(driver)`, key `umdemu`. Uses `PBOOT.PBP` from `PSP/GAME/<ID>/` if an update is installed, otherwise `EBOOT.OLD`, a non-empty `BOOT.BIN`, or `EBOOT.BIN`. |
+| ISO / CSO / ZSO / DAX | `sctrlSESetUmdFile` + `sctrlSESetBootConfFileIndex(driver)`, key `umdemu`. Uses `PBOOT.PBP` from `PSP/GAME/<ID>/` if an update is installed, otherwise `EBOOT.OLD`, a non-empty `BOOT.BIN`, or `EBOOT.BIN`. |
 | PSN (`EG`) | key `umdemu`, `MODE_UMD`, with the PBOOT.PBP update next to it if present |
 | PS1 (`ME`) | key `pops` |
 | Homebrew | key `game` |

@@ -70,7 +70,9 @@ static int probe_disc(Entry *e)
     Disc d;
     if (disc_open(&d, e->path))
         return -1;
-    e->kind = d.format == DISC_CSO ? KIND_CSO : d.format == DISC_ZSO ? KIND_ZSO : KIND_ISO;
+    e->kind = d.format == DISC_CSO ? KIND_CSO :
+              d.format == DISC_ZSO ? KIND_ZSO :
+              d.format == DISC_DAX ? KIND_DAX : KIND_ISO;
     uint32_t off, size;
     int r = -1;
     if (!disc_find(&d, "PSP_GAME/PARAM.SFO", &off, &size) && size <= SFO_MAX) {

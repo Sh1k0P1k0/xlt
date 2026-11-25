@@ -188,7 +188,7 @@ on the home tile and in the list's preview; a video plays muted, from 10% in, lo
 (`src/preview.c`).
 
 - **Games:** ICON1.PMF is read on the background worker from `PSP_GAME/ICON1.PMF` in the disc image (ISO, CSO,
-  ZSO, through `src/disc.c`) or from the third section of EBOOT.PBP (homebrew, PSN, PS1), and played from memory
+  ZSO, DAX, through `src/disc.c`) or from the third section of EBOOT.PBP (homebrew, PSN, PS1), and played from memory
   by the video player's PMF path. A game without one keeps its ICON0, and is remembered (64 of them) so its
   file isn't opened again. The game's SND0 sound isn't played.
 - **Only the highlighted item plays:** the tile under the focus ring, the list's preview, or the focused file in
@@ -197,7 +197,7 @@ on the home tile and in the list's preview; a video plays muted, from 10% in, lo
   `cache/<key>.t16` like ICON0 thumbnails, so it is made once per file. They're made on demand for the videos on
   screen, newest first, before the highlighted one starts playing. Files uses the same key (path, size, date), so
   a video has the same still there and in the Video tab. MP4 stills, like MP4 previews, wait while music plays.
-- **Files:** a video, ISO/CSO/ZSO or EBOOT.PBP under the focus plays its preview in the details panel, the same
+- **Files:** a video, ISO/CSO/ZSO/DAX or EBOOT.PBP under the focus plays its preview in the details panel, the same
   way.
 - **Videos:** the player's own MP4 / PMF code in a preview mode: no audio thread, a lower priority, a loop.
   An MP4 needs the ME booted the player's way, which would stop music, so MP4s aren't previewed while music

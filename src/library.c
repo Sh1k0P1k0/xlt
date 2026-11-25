@@ -264,6 +264,8 @@ static int folder_has_art(const char *path)
     return last_result;
 }
 
+static int has_ext(const char *name, const char *ext);
+
 static void add_file(Scan *s, const char *path, const SceIoStat *st, int what)
 {
     if (!strcasecmp(path, s_self) || strlen(path) >= sizeof(((Entry *)0)->path))
@@ -358,8 +360,6 @@ static void add_file(Scan *s, const char *path, const SceIoStat *st, int what)
         s->n++;
 }
 
-static int has_ext(const char *name, const char *ext);
-
 static void scan_music_dir(Scan *s, const char *dir, int depth)
 {
     SceUID d = sceIoDopen(dir);
@@ -449,7 +449,7 @@ static void scan_iso_dir(Scan *s, const char *dir, int depth, int max_depth)
             if (FIO_S_ISDIR(de.d_stat.st_mode)) {
                 if (depth < max_depth && strcasecmp(name, "VIDEO"))
                     scan_iso_dir(s, path, depth + 1, max_depth);
-            } else if (has_ext(name, ".iso") || has_ext(name, ".cso") || has_ext(name, ".zso")) {
+            } else if (has_ext(name, ".iso") || has_ext(name, ".cso") || has_ext(name, ".zso") || has_ext(name, ".dax")) {
                 add_file(s, path, &de.d_stat, ADD_GAME);
             }
         }

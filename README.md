@@ -16,7 +16,7 @@ flatter, quieter look, and puts your games, music, videos, pictures and files on
 
 ## Features
 
-- **Games:** ISO, CSO, ZSO, EBOOT, PS1 and homebrew, as a list or a grid, with per-game CPU speed, ISO driver,
+- **Games:** ISO, CSO, ZSO, DAX, EBOOT, PS1 and homebrew, as a list or a grid, with per-game CPU speed, ISO driver,
   folders, favourites and play time. Copy a UMD to the Memory Stick as an ISO.
 - **Music:** MP3, AAC/M4A and FLAC by artist, album or playlist, with covers, lyrics, a five-band equalizer,
   gapless albums, crossfades, even volume and a sleep timer. It keeps playing while you browse.

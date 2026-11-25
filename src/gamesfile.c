@@ -14,6 +14,7 @@ static const char *kind_name(int k)
     case KIND_ISO: return "iso";
     case KIND_CSO: return "cso";
     case KIND_ZSO: return "zso";
+    case KIND_DAX: return "dax";
     case KIND_PSN: return "psn";
     case KIND_PS1: return "ps1";
     case KIND_HOMEBREW: return "homebrew";

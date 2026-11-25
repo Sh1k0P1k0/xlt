@@ -27,7 +27,7 @@ Linked into the EBOOT (from the pspdev toolchain), each under its own license:
 | [libjpeg](https://ijg.org/) | JPEG pictures, covers, thumbnails, recorder frames | IJG |
 | [libpng](http://www.libpng.org/pub/png/libpng.html) | PNG pictures, screenshots | libpng |
 | [giflib](https://giflib.sourceforge.net/) | GIF pictures | MIT |
-| [zlib](https://zlib.net/) | CSO discs, ZIP extraction, PNG, PDF streams | zlib |
+| [zlib](https://zlib.net/) | CSO and DAX discs, ZIP extraction, PNG, PDF streams | zlib |
 | [LZ4](https://github.com/lz4/lz4) | CSO v2 and ZSO discs | BSD-2-Clause |
 | [PSPSDK](https://github.com/pspdev/pspsdk) | The PSP's system functions (graphics, audio, sceMp3, sceMpeg, USB, UMD, Wi-Fi, power), pthreads | BSD-style |
 | SystemControl and kubridge stubs (pspdev) | ARK's exported functions: launching, kernel calls | – |

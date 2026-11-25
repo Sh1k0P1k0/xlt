@@ -17,7 +17,11 @@
 
 #define SECTOR 2048
 #define MAX_BLOCK (64 * 1024)
+#define DAX_BLOCK 8192
+#define DAX_HEADER_SIZE 32
+#define DAX_COMP_PAD 1024
 
+static uint16_t rd16(const uint8_t *p) { return p[0] | p[1] << 8; }
 static uint32_t rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
 int disc_open(Disc *d, const char *path)
@@ -51,6 +55,33 @@ int disc_open(Disc *d, const char *path)
             }
             d->z = z;
         }
+    } else if (!memcmp(h, "DAX\0", 4)) {
+        uint8_t dh[DAX_HEADER_SIZE];
+        if (xio_read_at(d->fd, dh, DAX_HEADER_SIZE, 0) != DAX_HEADER_SIZE)
+            goto fail;
+        uint32_t total = rd32(dh + 4), ver = rd32(dh + 8), nc = rd32(dh + 12);
+        if (total == 0 || ver > 1)
+            goto fail;
+        if (ver == 0)
+            nc = 0;
+        if (nc > 65536)
+            goto fail;
+        d->format = DISC_DAX;
+        d->total_bytes = total;
+        d->block_size = DAX_BLOCK;
+        d->ver = ver;
+        d->dax_frames = (total + DAX_BLOCK - 1) / DAX_BLOCK;
+        d->dax_nc_areas = nc;
+        d->block = malloc(d->block_size);
+        d->cbuf = malloc(d->block_size + DAX_COMP_PAD);
+        if (!d->block || !d->cbuf)
+            goto fail;
+        z_stream *z = calloc(1, sizeof(z_stream));
+        if (!z || inflateInit2(z, 15) != Z_OK) {
+            free(z);
+            goto fail;
+        }
+        d->z = z;
     } else {
         d->format = DISC_ISO;
         d->block_size = SECTOR;
@@ -87,10 +118,69 @@ static int inflate_block(Disc *d, uint32_t csize)
     return (r == Z_STREAM_END || z->avail_out == 0) ? 0 : -1;
 }
 
+static int dax_is_nc_frame(Disc *d, uint32_t n)
+{
+    uint64_t base = DAX_HEADER_SIZE + (uint64_t)d->dax_frames * 6;
+    uint8_t buf[32 * 8];
+    for (uint32_t i = 0; i < d->dax_nc_areas; ) {
+        uint32_t batch = d->dax_nc_areas - i;
+        if (batch > 32)
+            batch = 32;
+        int need = (int)(batch * 8);
+        if (xio_read_at(d->fd, buf, need, base + (uint64_t)i * 8) != need)
+            return 0;
+        for (uint32_t j = 0; j < batch; j++) {
+            uint32_t start = rd32(buf + j * 8);
+            uint32_t count = rd32(buf + j * 8 + 4);
+            if (n >= start && n - start < count)
+                return 1;
+        }
+        i += batch;
+    }
+    return 0;
+}
+
+static int load_dax_block(Disc *d, uint32_t n)
+{
+    if (n >= d->dax_frames)
+        return -1;
+    uint8_t offb[4], lenb[2];
+    if (xio_read_at(d->fd, offb, 4, DAX_HEADER_SIZE + (uint64_t)n * 4) != 4)
+        return -1;
+    if (xio_read_at(d->fd, lenb, 2, DAX_HEADER_SIZE + (uint64_t)d->dax_frames * 4 + (uint64_t)n * 2) != 2)
+        return -1;
+    uint32_t pos = rd32(offb);
+    uint32_t csize = rd16(lenb);
+    uint64_t rem = d->total_bytes - (uint64_t)n * DAX_BLOCK;
+    uint32_t raw_len = rem < DAX_BLOCK ? (uint32_t)rem : DAX_BLOCK;
+    uint64_t min_pos = DAX_HEADER_SIZE + (uint64_t)d->dax_frames * 6 + (uint64_t)d->dax_nc_areas * 8;
+    if ((uint64_t)pos < min_pos || csize == 0 || csize > d->block_size + DAX_COMP_PAD)
+        return -1;
+
+    int stored = (d->ver >= 1 && csize == raw_len) ||
+                 (d->dax_nc_areas > 0 && dax_is_nc_frame(d, n));
+    d->cached = -1;
+    if (stored) {
+        if (csize > d->block_size || xio_read_at(d->fd, d->block, csize, pos) != (int)csize)
+            return -1;
+        if (csize < d->block_size)
+            memset(d->block + csize, 0, d->block_size - csize);
+    } else {
+        if (xio_read_at(d->fd, d->cbuf, csize, pos) != (int)csize)
+            return -1;
+        if (!d->z || inflate_block(d, csize))
+            return -1;
+    }
+    d->cached = n;
+    return 0;
+}
+
 static int load_block(Disc *d, uint32_t n)
 {
     if ((int64_t)n == d->cached)
         return 0;
+    if (d->format == DISC_DAX)
+        return load_dax_block(d, n);
     uint8_t ix[8];
     if (xio_read_at(d->fd, ix, 8, 24 + (uint64_t)n * 4) != 8)
         return -1;

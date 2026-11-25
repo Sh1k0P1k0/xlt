@@ -807,7 +807,7 @@ static const char *dl_folder(const char *name)
 {
     const char *dot = strrchr(name, '.');
     const char *e = dot ? dot + 1 : "";
-    if (!strcasecmp(e, "iso") || !strcasecmp(e, "cso") || !strcasecmp(e, "zso")) return "ISO";
+    if (!strcasecmp(e, "iso") || !strcasecmp(e, "cso") || !strcasecmp(e, "zso") || !strcasecmp(e, "dax")) return "ISO";
     if (audio_format(name) != AUDIO_NONE) return "MUSIC";
     if (!strcasecmp(e, "mp4") || !strcasecmp(e, "pmf")) return "VIDEO";
     if (!strcasecmp(e, "jpg") || !strcasecmp(e, "jpeg") || !strcasecmp(e, "png") || !strcasecmp(e, "gif") ||

@@ -8,6 +8,7 @@ enum {
     KIND_ISO,      /* plain disc image */
     KIND_CSO,
     KIND_ZSO,
+    KIND_DAX,
     KIND_PSN,      /* EBOOT.PBP, CATEGORY "EG" */
     KIND_PS1,      /* EBOOT.PBP, CATEGORY "ME" */
     KIND_HOMEBREW, /* EBOOT.PBP, CATEGORY "MG" */
@@ -38,7 +39,7 @@ typedef struct {
 #define ICON_FOLDER_ART 0xFFFFFFFFu
 
 #define INDEX_MAGIC 0x31584C58u /* "XLX1" */
-#define INDEX_VERSION 2 /* 2: music fields (an old index is ignored: one full rescan) */
+#define INDEX_VERSION 3 /* 3: DAX metadata & cover probing (an old index is ignored: one full rescan) */
 
 typedef struct {
     uint32_t magic, version, count, entry_size;
@@ -54,7 +55,7 @@ uint32_t entry_key(const Entry *e);
 int sfo_parse(const uint8_t *b, uint32_t n, Entry *e, char *category);
 
 static inline int kind_is_homebrew(int k) { return k == KIND_HOMEBREW; }
-static inline int kind_is_disc(int k) { return k <= KIND_ZSO; }
+static inline int kind_is_disc(int k) { return k <= KIND_DAX; }
 static inline int kind_is_picture(int k) { return k == KIND_PICTURE; }
 static inline int kind_is_music(int k) { return k == KIND_MUSIC; }
 static inline int kind_is_video(int k) { return k == KIND_VIDEO; }
