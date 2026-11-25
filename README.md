@@ -5,305 +5,124 @@
 ![Platform: PSP with ARK](https://img.shields.io/badge/platform-PSP%20%2B%20ARK--4%20%2F%20ARK--5-1f6feb)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-A light, fast launcher for PSPs running the ARK custom firmware. It keeps the XMB's way of getting around
-(L/R to switch categories, the d-pad for what's in them) in a flatter, quieter look, and puts your games,
-music, videos, pictures and files one button away.
+A light, fast launcher for PSPs running the ARK custom firmware. It keeps the XMB's way of getting around in a
+flatter, quieter look, and puts your games, music, videos, pictures and files one button away.
 
-![XLT in motion](docs/media/xlt_teaser.gif)
+[![XLT on YouTube](https://img.youtube.com/vi/1EDtFNqxjh4/hqdefault.jpg)](https://youtu.be/1EDtFNqxjh4)
 
-**The walk-through** (about 50 s, no sound):
+**[Watch XLT on YouTube](https://youtu.be/1EDtFNqxjh4)** · **[Download the latest release](https://github.com/boubounokefalos/xlt/releases/latest)**
 
-https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
+> The games, songs and artwork in the screenshots and video are made up, drawn on a PC by XLT's own code.
 
-> Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
-> the games, songs, artists and artwork are invented, so none of it belongs to anyone.
+## Features
+
+- **Games:** ISO, CSO, ZSO, EBOOT, PS1 and homebrew, as a list or a grid, with per-game CPU speed, ISO driver,
+  folders, favourites and play time. Copy a UMD to the Memory Stick as an ISO.
+- **Music:** MP3, AAC/M4A and FLAC by artist, album or playlist, with covers, lyrics, a five-band equalizer,
+  gapless albums, crossfades, even volume and a sleep timer. It keeps playing while you browse.
+- **Video:** MP4 and PMF, with subtitles, audio tracks, resume and the next episode.
+- **Pictures, files and text:** a file manager with ZIP unpacking and save data backup, a reader for text and PDF,
+  and a text editor.
+- **Web:** a simple browser for text, links, forms and pictures over secure connections (PSP-2000 or later).
+- **Two layouts:** **Classic**, or **nMB**, a cross bar like a modern take on the PSP's own menu.
+- **Eight colour themes**, interface sounds, a clock screensaver and a control center on SELECT.
+- **Screenshots in games** (L+R+START) and **screen recording** in XLT (L+R+SELECT).
+- **Settings in one place:** XLT's, ARK's and the PSP's own, plugins included, with an update check over Wi-Fi.
+- **Longer battery life:** the CPU slows down when nothing is moving, and Wi-Fi turns off when unused.
+- **Your language:** accented Latin, Greek, Cyrillic and Japanese in names, tags and text.
+- **Crash log:** `SEPLUGINS/xltcrash.log` says what went wrong when a game, a plugin or XLT crashes.
+
+**With [XLT Tool](https://github.com/boubounokefalos/xlt-tool) on your PC** (Linux and Windows), over the USB cable:
+
+- **USB sync:** send videos, music, pictures, books and games while XLT keeps running, with no USB mode. Nothing
+  half-written is ever left on the stick.
+- **XLT Cast:** the game you're playing, live on the PC with its sound (L+R+SELECT in a game).
+- **Internet over USB:** the PSP uses your PC's internet, with [USBNet](https://github.com/chriopter/pspkit-usbnet).
+- **Updates over USB**, and your games, saves and play time in XLT Tool's library.
 
 ## New in 1.4.0
 
-- **nMB: a second look for XLT.** **Settings → XLT → Interface** now has two layouts. **Classic** is XLT as you
-  know it. **nMB** puts everything on one cross bar, like a modern take on the PSP's own menu: the categories run
-  across the top and their items down a column, with a **Continue** card (the game played last, the song playing,
-  the video you stopped part way), a details card for the focused item, and Settings as a column. Your library,
-  theme and buttons stay the same in both.
-- **Internet over the USB cable.** With [XLT Tool](https://github.com/boubounokefalos/xlt-tool) 1.3.0, the PSP
-  can use your PC's internet through the cable, with [USBNet](https://github.com/chriopter/pspkit-usbnet) by
-  chriopter: turn on **Settings → Network → Internet over USB**, press **Internet** in XLT Tool, and connect to
-  **Hi-Speed USB**. XLT Tool brings USBNet and XLT installs it (a USBNet you already have is left as it is). USB
-  sync and the internet share the cable.
-- **Update over USB.** XLT Tool can send a new XLT over USB sync (**⋮ → Update XLT on the PSP**); XLT offers it
-  in **Settings → About**, no Wi-Fi needed. The running XLT is kept as `EBOOT-<version>.PBP`.
-- **Edit text files.** △ → **Edit** in the Reader: ↑/↓ pick a line, ✕ edits it on the keyboard, □ adds a line
-  below, START saves. The menu has undo, a new line above, join and delete. UTF-8 files up to 256 KB, saved with
-  their own line breaks; a file that couldn't come back exactly as it was says why instead. Files can also make a
-  new text file.
-- **Longer battery life.** The CPU drops to 111 MHz when nothing is moving (music included, when it can), and
-  Wi-Fi turns off after two minutes unused. Videos still get full speed.
-- **Crash log.** When a game, an app, a plugin or XLT itself crashes, `SEPLUGINS/xltcrash.log` says what went
-  wrong, to attach to a bug report. Nothing is written otherwise. On by default; **Settings → XLT → Crash log**
-  turns it off.
-- **XLT Cast: PS1 games**, the picture for now (no sound yet).
-- **Smaller things:** △ menus on the Files, Web and Settings cards of the home row; holding a key repeats it in
-  the keyboard and search; the d-pad shows as ◀▶ ▲▼ in the button hints; a file name the PSP refuses is made in
-  plain letters instead; Greek final ς is kept as σ in names.
+- **nMB**, a second layout: **Settings → XLT → Interface**.
+- **Internet over the USB cable** with XLT Tool 1.3.0: **Settings → Network → Internet over USB**.
+- **Update over USB** from XLT Tool, no Wi-Fi needed.
+- **A text editor** in the Reader (△ → **Edit**).
+- **Longer battery life**, a **crash log**, and **XLT Cast for PS1 games** (picture only for now).
 
-## New in 1.3.1
-
-- **Fixed: a rare bug that could wipe videos and other files from the Memory Stick.** It could happen when the
-  free space was being measured (**Settings → About**, or USB sync with XLT Tool) while the PSP was saving
-  something, like a screen recording. XLT now leaves the measuring to the PSP itself, which is always safe.
-- **About asks before measuring.** The PSP's own count is slower: the first time after XLT starts, the PSP
-  pauses for about 10 seconds on a big card. So About now asks first, shows "please wait" while it scans, and
-  then shows the result. The Memory Stick row measures again with ✕.
-
-## New in 1.3.0
-
-- **XLT Cast: your game on the PC.** The game you're playing on the PSP shows live in
-  [XLT Tool](https://github.com/boubounokefalos/xlt-tool) on your PC, with its sound, over the USB cable. Turn on
-  **Settings → XLT → XLT Cast**, then in a game, with the cable in, **L+R+SELECT** starts or stops it (HOME stops
-  it too). Most games come through at full speed (30 fps) without slowing down on the PSP. PS1 (POPS) games
-  aren't supported yet.
-- **Gapless music and crossfades.** Albums play with no gap between songs, and **Settings → Sound & Controls →
-  Crossfade** (2 to 10 s) fades one song into the next. Songs that run on from each other on an album are still
-  joined without a fade.
-- **Copy a UMD to the Memory Stick.** △ on the UMD card → **Copy to Memory Stick** makes an ISO in `ISO/`, with
-  progress and time left. A copy that is stopped or fails is deleted, never left half-made.
-
-## New in 1.2.0
-
-- **Music equalizer.** Five bands (60 Hz to 12 kHz, ±12 dB) with presets: Bass, Treble, Vocal, Loudness and
-  your own Custom curve. START in Now Playing opens it; **Settings → Sound & Controls → Equalizer** picks a preset.
-  The song is turned down by the boost, so it never distorts.
-- **Arrange home menu.** Put the home menu's cards in the order you like: **Settings → XLT → Arrange home menu**,
-  then L/R pick a card, ←/→ carry it, ✕ puts it down. A UMD always comes first.
-- **Fixed:** the screensaver now works with the PSP's own backlight dimming: it no longer brightens a panel the
-  PSP has already dimmed, and one press wakes it after the backlight has turned off.
-
-## New in 1.1.1
-
-- **Fixed:** PS1 and homebrew icons that aren't the usual 144×80 (PS1 icons are square) are no longer stretched
-  to fill the tile; they keep their shape, centred. Thumbnails saved by older versions are redone once.
-
-## New in 1.1.0
-
-- **USB sync with [XLT Tool](https://github.com/boubounokefalos/xlt-tool).** Send videos, music, pictures, books
-  and games from your PC while XLT keeps running, without USB mode. XLT Tool also shows which games are on the
-  PSP, backs up and restores their saves, and shows the PSP's battery.
-- **Play time.** XLT counts how long you play each game, PS1 games included, and shows it in the game's details
-  ("12 h 40 min · played yesterday"). Games and Homebrew can be sorted by **Most played**.
-- **Check for updates** in Settings → About: XLT finds a newer release on GitHub and installs it over Wi-Fi,
-  keeping the old one.
-- **Battery percentage** in the status bar (it can be turned off in Settings → Power & Display).
-- **XLT's own HOME dialog** ("Quit XLT?"), in XLT's look, in place of the system's.
-- **Button test** in Settings → XLT: every button, the analog stick (with its drift) and the switches.
-- **Japanese, Cyrillic and more** in names, tags and text: kana and symbols built in, kanji from the PSP's own
-  font; file names in Shift-JIS, as the PSP keeps them.
-- **Exit to XMB** now reaches the XMB when XLT was started from it.
-
-## How it was made
-
-XLT is a **vibe-coded** app. It was written with **Claude** (Anthropic's AI model) in
-[Claude Code](https://claude.com/claude-code): the author described what XLT should do, chose between the
-options Claude proposed, and tested every build on a real PSP, reporting back what worked and what didn't;
-Claude wrote the code, the tools and the tests, and these docs. Much of it is checked automatically on a PC
-(`make test`), and the hardware side was confirmed on a PSP-E1004 with ARK-5. Like any homebrew, it comes with
-no warranty.
-
-## What it does
-
-- **One row for everything.** Homebrew, Games, Music, Video, Pictures, Files, Web and Settings, plus the UMD drive
-  while a disc is in, in the order you pick (Settings → XLT → Arrange home menu). Each card shows what you used
-  last, and a game's animated icon or a video's preview plays once you rest on it.
-- **Games.** ISO, CSO, ZSO and EBOOT games, PS1 classics and homebrew, as a list or a grid of icons. Per game:
-  CPU speed, ISO driver, favourites, your own folders, details, and delete. Games start through ARK as they do
-  from the XMB, and a UMD can be copied to the Memory Stick as an ISO. Hold **L** while XLT starts to skip the library check (safe start).
-- **Music.** MP3, AAC/M4A and FLAC by artist, album or playlist, with covers and lyrics. Shuffle, repeat, a sleep
-  timer, and an even-volume mode that uses ReplayGain or Sound Check tags. It never makes anything louder, and
-  it respects AVLS. A five-band equalizer with presets (START in Now Playing), gapless albums and crossfades. Music keeps playing while you
-  browse.
-- **Video.** MP4 (H.264 and AAC) and PMF, with subtitles (`.srt` files or ones inside the MP4), several audio
-  tracks, resume where you stopped, and the next episode in the folder.
-- **Pictures.** JPEG, PNG, BMP and GIF, with zoom.
-- **Files.** Copy, move, rename, delete and new folders, unpacking ZIP files (homebrew goes straight to
-  `PSP/GAME`), save data backup and restore, a reader for text and PDF files (Greek included), and a text
-  editor.
-- **Web.** A simple browser for text, links, forms and pictures over secure connections, over Wi-Fi or the USB
-  cable. It doesn't run JavaScript, and it needs a PSP-2000 or later.
-- **Control center** (SELECT, anywhere). Wi-Fi status, USB mode, screenshot, sleep and power, the song playing,
-  volume and brightness.
-- **Screenshots, in games too.** L+R+START saves a screenshot as a PNG in `PICTURE/`, in XLT and in your games:
-  XLT sets up a small plugin for ARK by itself the first time it starts (and turns off other screenshot plugins
-  so two don't fire at once). In a game the screen edge flashes white when the shot is taken, and the game isn't
-  paused by the START press. Not in the XMB.
-- **Screen recording.** L+R+SELECT records XLT's screens to a video (a video playing included). This works only
-  inside XLT, not in games or the XMB, and a recording stops when a game starts.
-- **USB sync.** With **Settings → XLT → USB sync** on and the cable in, [XLT Tool](https://github.com/boubounokefalos/xlt-tool)
-  on your PC sends files straight into XLT's folders while XLT keeps running, and the library updates by itself.
-  A file is only put in place once it has arrived whole and checked, so a pulled cable leaves nothing
-  half-written. USB mode is still there for a file manager.
-- **XLT Cast.** With **Settings → XLT → XLT Cast** on, L+R+SELECT in a game shows it live in XLT Tool on your PC,
-  with its sound, over the USB cable (PSP games and homebrew; PS1 games show the picture, no sound yet).
-- **Play time.** The screenshot plugin also counts how long each game runs (not while the PSP sleeps), PS1
-  games included; XLT adds it to the game's details and to the **Most played** sort.
-- **Two layouts.** Classic, or nMB, a cross bar like the PSP's own menu (**Settings → XLT → Interface**).
-- **Settings.** XLT's own options, ARK's settings and plugins, and the PSP's system settings in one place.
-  There are eight colour themes, which change at once, and interface sounds. About shows your model, firmware
-  and Memory Stick space, and checks for updates. A button test shows whether every button and the stick work.
-- **Your language.** Accented Latin, Greek, Cyrillic and Japanese (kana built in, kanji from the PSP's own font)
-  in file names, song tags and text.
-- **Screensaver.** A clock with the date and the song playing.
+Older versions: [releases](https://github.com/boubounokefalos/xlt/releases).
 
 ## Screenshots
 
 | | |
 |---|---|
 | ![Home](docs/media/shot_1_home.png) | ![Games list](docs/media/shot_2_games_list.png) |
-| Home: the recent games on the Games card | The games list, with the focused game's icon |
+| Home | The games list |
 | ![Games grid](docs/media/shot_3_games_grid.png) | ![Game options](docs/media/shot_4_game_options.png) |
-| The same games as a grid | △: a game's options |
+| The games as a grid | A game's options (△) |
 | ![Albums](docs/media/shot_5_albums.png) | ![Now Playing](docs/media/shot_6_now_playing.png) |
-| Music by album, with covers | Now Playing |
+| Music by album | Now Playing |
 | ![Control center](docs/media/shot_7_control_center.png) | ![Settings](docs/media/shot_8_settings_theme.png) |
 | The control center (SELECT) | Settings, trying a theme |
-| ![HOME dialog](docs/media/shot_10_home_dialog.png) | ![Button test](docs/media/shot_11_button_test.png) |
-| HOME: XLT's own "Quit XLT?" | Settings → XLT → Button test |
-| ![Update](docs/media/shot_12_update.png) | ![Screensaver](docs/media/shot_9_screensaver.png) |
-| Settings → About: a newer XLT found (a made-up release) | The clock screensaver |
 
 ## Getting started
 
-You need a PSP with **ARK-4 or ARK-5** installed.
+You need a PSP with **ARK-4 or ARK-5**.
 
-1. Copy the `XLT` folder to `PSP/GAME/` on the Memory Stick, so you have `PSP/GAME/XLT/EBOOT.PBP`.
-2. Start **XLT** from the XMB's Game menu. The first start looks through the Memory Stick for your games, music,
-   videos and pictures, which takes a few seconds; later starts are quicker.
-3. Updating from an older XLT: **Settings → About → Check for updates**, XLT Tool's **Update XLT on the PSP**
-   (from 1.4.0 on), or copy the new `XLT` folder over the
-   old one. Your settings and library stay.
-4. To have your PSP start straight into XLT, turn on **Settings → XLT → Start XLT at boot**. XLT sets itself
-   up as ARK's launcher and keeps ARK's own menu as `PSP/SAVEDATA/ARK_01234/VBOOT_ARKMENU.PBP`. Turning the
-   setting off puts ARK's menu back. Exit to XMB from XLT's power menu takes you to the XMB as usual; the PSP
-   then boots into the XMB until you open XLT again.
+1. Download `XLT-<version>.zip` from the [releases](https://github.com/boubounokefalos/xlt/releases/latest) and copy
+   its `PSP` folder to the root of your Memory Stick, so you have `PSP/GAME/XLT/EBOOT.PBP`.
+2. Start **XLT** from the XMB's Game menu. The first start looks through the stick for your games, music, videos
+   and pictures (in `ISO/`, `PSP/GAME/`, `MUSIC/`, `VIDEO/` and `PICTURE/`).
+3. Optional: **Settings → XLT → Start XLT at boot** makes your PSP start straight into XLT. Turning it off puts
+   ARK's menu back.
 
-XLT looks for games in `ISO/` and `PSP/GAME/`, music in `MUSIC/`, videos in `VIDEO/` and pictures in `PICTURE/`.
-
-**From your PC:** [XLT Tool](https://github.com/boubounokefalos/xlt-tool) converts videos, music, pictures, books
-and PS1 games into files the PSP plays, and sends them over USB sync (turn on **Settings → XLT → USB sync** and
-plug the cable in) or to the Memory Stick.
-
-## USB sync or USB mode?
-
-XLT can connect to a PC over the same cable in two ways.
-
-| | **USB sync** (XLT Tool) | **USB mode** (the PSP as a USB drive) |
-|---|---|---|
-| While connected | XLT keeps running: play music, browse, even start a game | The PSP shows "USB connected" and nothing else works |
-| New files in XLT | Appear by themselves a moment after the last one | Only after you leave USB mode and XLT looks again |
-| A cable pulled mid-copy | Nothing half-written is left: a file only appears once it is whole and its checksum matches | A broken file stays on the stick |
-| File names | Always ones the PSP can show (Japanese, accents and all) | The PC writes them its way; a name the PSP can't hold makes the file unreachable |
-| What the PC can change | Only XLT's folders and save data, never system files or plugins | The whole Memory Stick |
-| Games and saves | XLT Tool shows what's on the PSP, sends and removes games, backs up and restores saves, shows the battery | Copy files by hand |
-| Speed (64 MB) | 8.3 MB/s | 9.6 MB/s |
-| On the PC | XLT Tool (Linux: allow access once; Windows: nothing to set up) | Any file manager, no software |
-
-USB sync suits everyday use: sending a few videos or songs, or adding a game, without leaving XLT. USB mode is
-still in the control center for anything else, such as copying a whole folder tree or reaching files outside
-XLT's folders.
-
-How it works, in depth: [USB sync](docs/USB-Sync.md).
+**Updating:** **Settings → About → Check for updates** (Wi-Fi), **Update XLT on the PSP** in XLT Tool (USB), or
+copy the new `EBOOT.PBP` over the old one. Your library and settings stay.
 
 ## Controls
 
-"Anywhere" means anywhere in XLT. Once a game or the XMB is running, the PSP's own buttons apply, except
-L+R+START, which takes screenshots in games too.
-
 | Where | Button | What it does |
 |---|---|---|
-| Anywhere | L / R | Switch category (on Home), or list ↔ grid in a list |
-| Anywhere | ✕ / ○ | Open or start / back |
-| Anywhere | △ | Options for what's focused |
-| Anywhere | □ | Search |
+| Anywhere | ✕ / ○ / △ / □ | Open / back / options / search |
+| Anywhere | L / R | Switch category, or list ↔ grid |
 | Anywhere | SELECT | Control center |
-| Anywhere, and in games | L + R + START | Screenshot (saved in `PICTURE/`) |
-| Anywhere | L + R + SELECT | Start or stop recording the screen (saved in `VIDEO/`) |
-| Anywhere | HOME | Quit XLT? (Yes / No) |
+| Anywhere, and in games | L + R + START | Screenshot |
+| Anywhere | L + R + SELECT | Record the screen (in a game with XLT Cast on: cast it) |
+| Anywhere | HOME | Quit XLT? |
 | Starting XLT | Hold L | Safe start: skip the library check |
-| Lists | ↑ / ↓, ← / → | Move, a page at a time |
-| Now Playing | ✕ / ← → / L R / △ / □ / START | Pause / previous, next / seek / shuffle / repeat / equalizer |
-| Video | ✕ / ← → / L R / △ / □ | Pause / 10 s back, ahead / 1 min / audio track / subtitles |
-| Files | ✕ / ○ / △ / □ | Open / up / menu / mark |
-| Reader | ✕ / L R / □ / △ | Next screen / page / find / menu (△ → Edit for text files) |
-| Text editor | ↑ ↓ / ✕ / □ / START / ○ | Line / edit it / new line below / save / leave (asks first) |
-| Web | ✕ / L R / □ / △ | Open / back, forward / address / menu |
-| Screensaver | Any button | Wake |
+| Now Playing | START | Equalizer |
+
+## How it was made
+
+XLT is **vibe-coded**: written with **Claude** (Anthropic's AI model) in [Claude Code](https://claude.com/claude-code).
+The author decided what it should do and tested every build on a real PSP; Claude wrote the code, the tools, the
+tests and the docs. It comes with no warranty, like any homebrew.
 
 ## For developers
 
-XLT is written in C with the PSPSDK. Build it with `make` (you need the pspdev toolchain and Python 3 with
-Pillow); `make test` runs the host tests and renders the screens on the PC. How each part works, the firmware
-calls it relies on, what was measured on hardware and how it is tested are in the
-**[developer docs](docs/Home.md)**.
+XLT is C with the PSPSDK: `make` builds it (pspdev toolchain, Python 3 with Pillow), `make test` runs the host tests.
+How every part works is in the **[developer docs](docs/Home.md)**.
 
 ## Credits
 
 XLT is free software under the **GPL-3.0** (see [LICENSE](LICENSE)).
 
-Special thanks to [08Weber](https://github.com/08Weber) for [psp5](https://github.com/08Weber/psp5).
+- **[psp5](https://github.com/08Weber/psp5)** by [08Weber](https://github.com/08Weber) (GPL-3.0): XLT adapts its MP3
+  engine, system calls, UMD and boot paths, SETTINGS.TXT parser, graphics set-up, PMF video and network start-up.
+  Special thanks to 08Weber.
+- **Libraries:** [libcurl](https://curl.se/), [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/),
+  [libjpeg](https://ijg.org/), [libpng](http://www.libpng.org/pub/png/libpng.html),
+  [giflib](https://giflib.sourceforge.net/), [zlib](https://zlib.net/), [LZ4](https://github.com/lz4/lz4) and
+  [PSPSDK](https://github.com/pspdev/pspsdk), each under its own license.
+- **Built in:** the [Noto Sans](https://fonts.google.com/noto) fonts (SIL OFL 1.1) and Mozilla's CA certificates
+  (MPL-2.0). Kanji come from the PSP's own font.
+- **Works with:** [USBNet](https://github.com/chriopter/pspkit-usbnet) by chriopter (MIT), for internet over USB.
+- **References:** [ARK](https://github.com/PSP-Archive/ARK-4)'s arkMenu, cooleyes' PMPlayer Advance, PPSSPP,
+  psplibdoc, BetterBright and PSPLINK's `usbhostfs`.
 
-**Code from other projects**
-- **[psp5](https://github.com/08Weber/psp5)** by 08Weber (GPL-3.0). XLT adapts several of its parts, and each of
-  those files says so at the top:
-  - the MP3 engine (`src/music.c`);
-  - brightness, kernel calls and USB mode (`src/sysctl.c`);
-  - the UMD drive watcher and boot paths (`src/umd.c`, `src/launch.c`);
-  - the SETTINGS.TXT parser (`src/arkcfg.c`, `src/ark.c`);
-  - the graphics set-up (`src/gfx.c`) and the exit and power callbacks (`src/main.c`);
-  - the PMF video path (`src/video.c`);
-  - the network start-up (`src/net.c`).
-
-**Libraries**, linked from the pspdev toolchain, each under its own license:
-- [libcurl](https://curl.se/) (curl license)
-- [Mbed TLS](https://www.trustedfirmware.org/projects/mbed-tls/) (Apache-2.0)
-- [libjpeg](https://ijg.org/) (IJG)
-- [libpng](http://www.libpng.org/pub/png/libpng.html) (libpng)
-- [giflib](https://giflib.sourceforge.net/) (MIT)
-- [zlib](https://zlib.net/) (zlib)
-- [LZ4](https://github.com/lz4/lz4) (BSD-2-Clause)
-- [PSPSDK](https://github.com/pspdev/pspsdk) (BSD-style), with the SystemControl and kubridge stubs for ARK
-
-**Built in as data**
-- the [Noto Sans](https://fonts.google.com/noto) fonts, and Noto Sans CJK JP for Japanese kana and symbols
-  (SIL Open Font License 1.1);
-- Mozilla's CA certificate list (MPL-2.0), for secure web pages.
-
-**References** (no code taken)
-- [ARK](https://github.com/PSP-Archive/ARK-4)'s arkMenu: launching, plugins, SETTINGS.TXT, the UMD drive and USB.
-- cooleyes' PMPlayer Advance and PMPlayer Ultraviolet: the video decoder interface and the weighted-prediction
-  workaround.
-- PPSSPP and psplibdoc: system call details.
-- BetterBright: the brightness range.
-- ARK's own preview video: the PMF layout.
-- PSPLINK's `usbhostfs` (BSD licence): the structure of the USB bus driver for USB sync (`plugin/xltsync`).
-- PPSSPP's `Core/Font/PGF.cpp` (GPL-2.0 or later): the PGF font format, for kanji (`src/pgf.c`).
-
-**Works with, not included:** [USBNet](https://github.com/chriopter/pspkit-usbnet) by chriopter (MIT), the PSP's
-internet over the USB cable: XLT Tool downloads it and XLT installs it.
-
-**Read from your PSP at run time, not included:** kanji come from the firmware's own Japanese font
-(`flash0:/font/jpn0.pgf`).
-
-The interface sounds are synthesised by XLT's build tools.
-
-Thanks to the ARK team and the PSP homebrew community.
+Thanks to the ARK team and the PSP homebrew community. Everything in detail: **[License and credits](docs/Credits.md)**.
 
 ## Trademarks
 
-PlayStation, PSP, PlayStation Portable, UMD, XMB and the PlayStation button symbols (△ ○ ✕ □) are
-trademarks or registered trademarks of Sony Interactive Entertainment Inc. Memory Stick is a trademark of Sony
-Group Corporation. ATRAC3plus is a trademark of Sony Group Corporation. Claude and Claude Code are trademarks of Anthropic. Other product and company names are
-trademarks of their owners. The names are used here to say what XLT runs on and works with; the button
-symbols appear in XLT's interface to show which of the PSP's buttons to press.
-
-XLT is an independent, unofficial project. It is not affiliated with, endorsed, sponsored or approved by Sony
-Interactive Entertainment, Sony Group Corporation or the ARK developers. It contains no Sony software or
-firmware: it uses the system functions already on your PSP, through ARK. Use it at your own risk; the
-software comes with no warranty (see the GPL-3.0).
+PlayStation, PSP, UMD, XMB and the button symbols are trademarks of Sony Interactive Entertainment Inc.; Memory
+Stick is a trademark of Sony Group Corporation; Claude and Claude Code are trademarks of Anthropic. XLT is an
+independent, unofficial project, not affiliated with or endorsed by Sony or the ARK developers, and contains no
+Sony software.

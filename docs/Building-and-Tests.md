@@ -12,9 +12,9 @@ Copy `EBOOT.PBP` to `ms0:/PSP/GAME/XLT/`.
 
 ### The README's media
 
-`tools/make_demo_reel.sh` renders the README's featurette (`docs/media/xlt_demo.mp4`; the README plays a copy
-uploaded to GitHub, so a new render has to be uploaded again and its link put in the README), its GIF teaser and the
-screenshots on the PC, after `make test`. Each screen preview has a demo mode (`XLT_DEMO=DIR`) that walks through
+`tools/make_demo_reel.sh` renders the walk-through video (`docs/media/xlt_demo.mp4`; the README links the copy on
+YouTube, https://youtu.be/1EDtFNqxjh4, so a new render has to be uploaded there again), a GIF teaser and the
+README's screenshots on the PC, after `make test`. Each screen preview has a demo mode (`XLT_DEMO=DIR`) that walks through
 the real UI code and saves every other frame (the HOME dialog, the button test and the update check are held
 stills from their previews); the library is made up and the artwork is drawn by
 `tests/make_demo_art.py`, so nothing in them belongs to anyone else. `tools/make_xmb_media.sh` makes the XMB
