@@ -172,6 +172,23 @@ int main(void)
         CHECK(plugtext_off_screenshots("game, x.prx, on\n", out, sizeof(out), names, sizeof(names)) == 0, "nothing to turn off");
     }
 
+    /* switched in place, as PSPDX does (USBNet's line, src/netplug.c) */
+    {
+        char t[200] = "vsh, a.prx, on\r\nalways, ms0:/seplugins/usbnet/usbnet.prx, off\r\ngame, b.prx, on\n";
+        size_t n0 = strlen(t);
+        CHECK(plugtext_switch_in_place(t, 1, 1) == 1 && strstr(t, "usbnet.prx, on \r\n") && strlen(t) == n0,
+              "off -> \"on \", the same length");
+        CHECK(plugtext_switch_in_place(t, 1, 1) == 0, "on already: nothing");
+        CHECK(plugtext_switch_in_place(t, 1, 0) == 1 && strstr(t, "usbnet.prx, off\r\n") && strlen(t) == n0,
+              "\"on \" -> off");
+        CHECK(!strncmp(t, "vsh, a.prx, on\r\n", 16) && strstr(t, "\ngame, b.prx, on\n"), "the other lines as they were");
+        char u[64] = "always, x.prx, on\n";
+        CHECK(plugtext_switch_in_place(u, 0, 0) == -1 && !strcmp(u, "always, x.prx, on\n"), "\"on\" at the end: not in place");
+        char v[64] = "# always, x.prx, off\n";
+        CHECK(plugtext_switch_in_place(v, 0, 1) == -1, "a comment isn't a line");
+        CHECK(plugtext_switch_in_place(v, 3, 1) == -1, "no such line");
+    }
+
     /* where ARK looks for each plugin's file (missing ones are hidden in Settings) */
     {
         char r[160];

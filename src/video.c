@@ -1736,7 +1736,7 @@ void video_draw(void)
             {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Play now"},
             {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
         };
-        ui_draw_hints(hints, 2, SCREEN_W / 2, 251);
+        ui_draw_screen_footer(hints, 2, 251, 1);
         gfx_set_opacity(256);
         return;
     }
@@ -1794,7 +1794,7 @@ void video_draw(void)
         Hint hints[6] = {
             {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Pause"},
             {-1, "L/R", 0, "1 min"},
-            {-1, "<-/->", 0, "10 s"},
+            {-1, KEY_LR, 0, "10 s"},
         };
         int hn = 3;
         if (V.resumed_ms) hints[hn++] = (Hint){ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "From start"};
@@ -1802,7 +1802,7 @@ void video_draw(void)
         if (V.nsub > 1) hints[hn++] = (Hint){ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Subtitles"};
         else if (V.nsub) hints[hn++] = (Hint){ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, V.sub_sel >= 0 ? "Subs off" : "Subs on"};
         hints[hn++] = (Hint){ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Stop"};
-        ui_draw_hints(hints, hn, SCREEN_W / 2, 251);
+        ui_draw_screen_footer(hints, hn, 251, 1);
         if (V.resumed_ms) { /* where it carried on from */
             char r[48], at[16];
             time_str(at, sizeof(at), V.resumed_ms);

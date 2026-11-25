@@ -40,6 +40,7 @@ void ui_draw_hints(const Hint *hints, int n, int cx, int y)
         x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + 16;
     }
 }
+#include "screen_footer.h" /* ui_draw_screen_footer, as ui.c draws it (nuMB N5) */
 
 static char s_pics[2][256];
 static int src_count(void) { return 2; }
@@ -86,6 +87,9 @@ int main(int argc, char **argv)
     viewer_input(PSP_CTRL_CIRCLE);            /* back to fitted */
     viewer_input(PSP_CTRL_SQUARE);            /* a quarter turn */
     shot(argv[2], "pv_4_turned");
+    g_cfg.ui_mode = UI_NUMB; /* nuMB N5: the hint row */
+    shot(argv[2], "pv_6_numb");
+    g_cfg.ui_mode = UI_XLT;
     viewer_input(PSP_CTRL_SQUARE);
     viewer_input(PSP_CTRL_SQUARE);
     viewer_input(PSP_CTRL_SQUARE);            /* upright again (forgotten) */

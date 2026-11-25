@@ -103,6 +103,56 @@ static void settings_path(char *out, int n)
     snprintf(out, n, "%sSETTINGS.TXT", s_dir);
 }
 
+static char *load_settings(void);
+
+static char s_self[128]; /* XLT's own EBOOT, for its clock line */
+
+void ark_set_self(const char *path) { snprintf(s_self, sizeof(s_self), "%s", path); }
+
+/* Keeps XLT's clock its own in text about to be written (*out, *len, room for cap):
+ * a Settings change that adds "game, cpuclock:..." puts it after XLT's line. */
+static void keep_free(char **out, int *len, int cap)
+{
+    if (!s_self[0] || *len < 0)
+        return;
+    char *fixed = malloc(cap + 256);
+    if (!fixed)
+        return;
+    (*out)[*len] = 0;
+    int n = arktext_free_clock(*out, s_self, s_version == 4, fixed, cap + 256);
+    if (n > 0) {
+        free(*out);
+        *out = fixed;
+        *len = n;
+    } else {
+        free(fixed);
+    }
+}
+
+int ark_free_clock(void)
+{
+    if (!s_version || !s_dir[0] || !s_self[0])
+        return 0;
+    char *text = load_settings();
+    if (!text)
+        return 0; /* no file: ARK's defaults set no clock */
+    int cap = (int)strlen(text) + 512;
+    char *out = malloc(cap);
+    int n = out ? arktext_free_clock(text, s_self, s_version == 4, out, cap) : -1;
+    int r = n;
+    if (n > 0) {
+        char path[160];
+        settings_path(path, sizeof(path));
+        r = write_text(path, out, n) == 0 ? 1 : -1;
+        if (r == 1 && s_version == 5 && file_exists(FLASH_SETTINGS))
+            write_text(FLASH_SETTINGS, out, n);
+    }
+    free(out);
+    free(text);
+    return r;
+}
+
+
 static char *load_settings(void)
 {
     char path[160];
@@ -137,6 +187,7 @@ int ark_set_clock(const char *id, int clock)
         return -1;
     }
     int len = arktext_set_clock(text ? text : "", id, clock, s_version == 4, out, cap);
+    keep_free(&out, &len, cap);
     char path[160];
     settings_path(path, sizeof(path));
     int r = len < 0 ? -1 : write_text(path, out, len);
@@ -176,6 +227,7 @@ int ark_save_cfg(const ArkCfg *c, const char *extra)
     if (!out)
         return -1;
     int len = arkcfg_write(c, s_version == 4, extra, out, cap);
+    keep_free(&out, &len, cap);
     char path[160];
     settings_path(path, sizeof(path));
     int r = len < 0 ? -1 : write_text(path, out, len);

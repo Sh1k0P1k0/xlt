@@ -151,6 +151,38 @@ last change, a USB icon and "From PC 45%" show in the status bar, and USB mode p
 64 MB writes at 8.3 MB/s (USB mode: 9.6). How it works, and why it differs from USB mode:
 [USB sync, in depth](USB-Sync.md).
 
+## Power manager
+
+XLT keeps the PLL and the bus at 222/111 MHz and changes only the CPU's clock (`scePowerSetCpuClockFrequency`,
+11 µs, no frame lost; a PLL change stalls a whole frame, which made the screen jump). The CPU runs at 111 MHz
+after a second with nothing to draw (screensaver redraws don't count) and at 222 as soon as something moves or
+work runs. The music player asks for 222 only when it needs it: it times every block it makes against its
+playing time, and a block over half of it (or the output running dry) asks for ~5 s at 222, a start, skip or seek
+for ~1 s. MP3 and AAC play at 111 with the screen idle; FLAC stays at 222 by this rule. The video player keeps 333.
+`cache/scan.log` gets a line every 5 minutes.
+
+An ARK `cpuclock` line such as `game, cpuclock:333, on` also covers homebrew and would lock XLT's clock, so XLT adds
+an off line of the same speed for itself at start and after Settings writes `SETTINGS.TXT` (ARK-5 clears a clock
+only with an off line of that speed).
+
+Wi-Fi: after 2 minutes with no page, picture or download, the connection is dropped and the network modules
+unloaded; the next page joins again.
+
+## Internet over USB
+
+**Settings → Network → Internet over USB** (`xlt_net` in `xlt.ini`, from XLT's next start) uses
+[USBNet](https://github.com/chriopter/pspkit-usbnet) by chriopter (MIT): the PSP's network goes through the cable,
+with XLT Tool running USBNet's gateway on the PC, and the PSP connects to **Hi-Speed USB**. XLT doesn't carry
+USBNet itself (`src/netplug.c`):
+- a USBNet already installed (PSPDX's `seplugins/usbnet/usbnet.prx`, or `seplugins/usbnet.prx`) is never
+  overwritten; its line is switched in place the way PSPDX does (`off` ↔ `on `);
+- otherwise XLT Tool sends USBNet's release over sync to `PSP/GAME/XLT/USBNET/` (sync can't write `SEPLUGINS`),
+  and XLT installs it where PSPDX puts it, with PSPDX's line.
+
+Sync and USBNet share the cable: a connection over Hi-Speed USB holds sync off first, sync never stops the bus
+while USBNet's driver is on it (that froze the PSP at exit), and closing the browser drops a USBNet connection
+so sync comes back.
+
 ## Screenshots in games
 
 Inside XLT, L+R+START is XLT's own screenshot. In games it is **xltshot**, a small kernel plugin

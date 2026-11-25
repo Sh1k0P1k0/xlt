@@ -192,6 +192,10 @@ typedef struct {
     u32 from_byte;             /* MP3: where the decoder was last started (open or seek), for the log */
     uint64_t since;            /* frames out of the decoder since then */
     u32 fmax, rmax, rtime;     /* the slowest FLAC block and read, in microseconds; all the reading */
+    /* the player's work per block (decode, mix, equalizer) in % of the block's playing
+     * time, by the CPU clock it was made at: [0] 111 MHz, [1] 222 */
+    u32 wmax[2], wn[2];
+    uint64_t wsum[2];
     /* volume levelling: the tags, and the gain they give (worked out again if Settings changes the mode) */
     Id3Info tags;
     int level_mode, level;     /* level in Q15, only ever a cut */
@@ -235,6 +239,13 @@ static void dec_close(Dec *d)
                    d->track, audio_format_name(d->format), d->rate, (unsigned long long)d->decoded,
                    (unsigned long long)d->taken, d->skip0, d->hold, d->gap_from, d->rmax / 1000,
                    d->failed ? "; stopped on an error" : "");
+        if (d->wn[0] + d->wn[1])
+            video_note("song %d load: at 111 MHz %u blocks, avg %u%% max %u%%; at 222 MHz %u blocks, avg %u%% max %u%%",
+                       d->track, d->wn[0], d->wn[0] ? (u32)(d->wsum[0] / d->wn[0]) : 0, d->wmax[0],
+                       d->wn[1], d->wn[1] ? (u32)(d->wsum[1] / d->wn[1]) : 0, d->wmax[1]);
+        memset(d->wmax, 0, sizeof(d->wmax));
+        memset(d->wn, 0, sizeof(d->wn));
+        memset(d->wsum, 0, sizeof(d->wsum));
         if (d->format == AUDIO_MP3 && d->ended && !d->failed) /* to check against the file: did every frame come out? */
             video_note("song %d reached its end: %llu frames out of the decoder from byte %u (music %u to %u, file %u bytes; header counts %llu)",
                        d->track, (unsigned long long)d->since, d->from_byte, d->audio_at, d->audio_end, d->size,
@@ -888,6 +899,37 @@ static int32_t s_acc[ALT_MAX * 2];
 static int16_t s_tmp[ALT_MAX * 2] __attribute__((aligned(64)));
 static int s_dry, s_fresh;             /* times the output ran out; 1 until the first block after a start or seek */
 
+/* Music at 111 MHz: a block that took over FAST_PCT of its playing time (or the
+ * output running dry) asks the governor for 222 for the next FAST_BLOCKS blocks;
+ * a start, skip or seek does too (the decoder's own start is work). */
+#define FAST_PCT 50
+#define FAST_BLOCKS 60   /* ~5 s of 4096-frame blocks */
+#define START_BLOCKS 12  /* ~1 s */
+static int s_fast_left;
+
+static void fast_for(int blocks)
+{
+    if (blocks > s_fast_left) {
+        if (!s_fast_left)
+            power_music_fast(1);
+        s_fast_left = blocks;
+    }
+}
+
+static void fast_tick(void)
+{
+    if (s_fast_left && !--s_fast_left)
+        power_music_fast(0);
+}
+
+static void fast_off(void)
+{
+    if (s_fast_left) {
+        s_fast_left = 0;
+        power_music_fast(0);
+    }
+}
+
 static void src_release(void)
 {
     if (!s_out_rate)
@@ -1012,6 +1054,7 @@ static int realign(Dec *d)
     if (s_dry)
         video_note("output ran dry %d times", s_dry);
     s_dry = 0;
+    fast_for(START_BLOCKS);
     return out_reserve(d->rate);
 }
 
@@ -1146,6 +1189,8 @@ static int play_block(void)
     int n = s_chunk;
     if (!n)
         return 0;
+    u32 w0 = sceKernelGetSystemTimeLow();
+    int slow = power_cpu_mhz() < 222;
     memset(s_acc, 0, sizeof(s_acc[0]) * (size_t)n * 2);
     Dec *c = &s_dec[s_cur];
     /* time for the crossfade into the next song? */
@@ -1214,9 +1259,24 @@ static int play_block(void)
         eq_process(&s_eq, out, n, s_out_rate, g);
     sceKernelDcacheWritebackRange(out, (size_t)n * 4);
     u32 t0 = sceKernelGetSystemTimeLow();
+    /* how long this block took to make, against how long it plays */
+    u32 block_us = (u32)((uint64_t)n * 1000000 / (u32)(s_out_rate > 0 ? s_out_rate : 44100));
+    u32 pct = block_us ? (u32)((uint64_t)(t0 - w0) * 100 / block_us) : 0;
+    Dec *w = &s_dec[s_cur];
+    w->wsum[!slow] += pct;
+    w->wn[!slow]++;
+    if (pct > w->wmax[!slow]) w->wmax[!slow] = pct;
+    if (pct > FAST_PCT)
+        fast_for(FAST_BLOCKS);
+    else
+        fast_tick();
     sceAudioSRCOutputBlocking(s_volume, out);
-    if (!s_fresh && sceKernelGetSystemTimeLow() - t0 < 500) /* it didn't have to wait: the sound ran dry */
+    if (!s_fresh && sceKernelGetSystemTimeLow() - t0 < 500) { /* it didn't have to wait: the sound ran dry */
         s_dry++;
+        video_note("output ran dry at %d MHz (song %d at %d ms, block %u%% of its time)",
+                   slow ? 111 : 222, w->track, dec_elapsed(w), pct);
+        fast_for(FAST_BLOCKS);
+    }
     s_fresh = 0;
     s_elapsed_ms = dec_elapsed(&s_dec[s_cur]);
     return 1;
@@ -1292,6 +1352,7 @@ static int player_thread(SceSize args, void *argp)
             s_q_tail = (t + 1) % QUEUE;
         }
         if (s_state != MUSIC_PLAYING || s_cur < 0 || s_dec[s_cur].track < 0) {
+            fast_off(); /* paused or stopped: nothing to keep fast */
             sceKernelDelayThread(10000);
             continue;
         }
@@ -1618,7 +1679,7 @@ static int begin_list(int n)
 static void go(int index)
 {
     play_order(s_order, s_count, s_shuffle, index, &s_seed);
-    power_hold(222); /* steady clock while music plays; released when it stops */
+    power_hold(0); /* music holds no clock: the governor runs, the player asks for 222 when it needs it */
     post(CMD_PLAY, s_shuffle ? 0 : index);
 }
 

@@ -8,6 +8,23 @@
 #include "system.h"
 
 #include "theme.h"
+#include "gamecfg.h"
+
+/* nuMB (docs/numb.md): Settings > XLT > Interface. Only drawing and navigation follow it. */
+#define NUMB (g_cfg.ui_mode == UI_NUMB)
+
+/* nuMB's cross bar and column (ui.c; Settings draws its own column the same way, N4) */
+#define NUMB_FOCUS_X 100 /* the focused category's centre on the bar */
+#define NUMB_BAR_CY 56
+#define NUMB_PITCH 58
+#define NUMB_BOX 50
+#define NUMB_ICON 26
+#define NUMB_LABEL_Y 86
+#define NUMB_COL_X (NUMB_FOCUS_X - NUMB_BOX / 2)
+#define NUMB_COL_W (SCREEN_W - 12 - NUMB_COL_X)
+#define NUMB_COL_Y 108
+#define NUMB_COL_BOTTOM 244
+#define NUMB_ROW_H 26
 
 /* The palette: from the theme in use (theme.c). */
 #define C_BG      (g_th->bg)
@@ -40,6 +57,9 @@ static inline u32 btn_tint(u32 c)
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define DOT " \xC2\xB7 "
+/* D-pad keys for hints, from the extended glyph atlas: U+25C0 U+25B6, U+25B2 U+25BC */
+#define KEY_LR "\xE2\x97\x80\xE2\x96\xB6"
+#define KEY_UD "\xE2\x96\xB2\xE2\x96\xBC"
 
 typedef struct {
     int icon;        /* button glyph, or -1 for a text key */
@@ -55,6 +75,17 @@ u32 ui_battery_color(const SysStatus *st); /* charging green, under 15 % red, el
 void ui_draw_status_bar(const char *title, const SysStatus *st); /* title left; clock, battery right */
 /* Dims everything drawn so far; t = 0..256. */
 void ui_dim(int t);
+/* A side sheet w wide, slid in by t (0..256): its left edge, and its panel. In nuMB the
+ * sheet floats: a rounded card a few pixels in from the screen's edges, with a hairline. */
+int ui_sheet_x(int w, int t);
+void ui_draw_sheet(int x, int w);
+/* nuMB: the cross bar as the home screen draws it (Settings draws it over its own column) */
+void ui_numb_draw_bar(void);
+/* The hint bar the home screen and the lists use (nuMB's or XLT's, as set) */
+void ui_draw_footer_hints(const Hint *hints, int n);
+/* A full screen's own hint row at y: XLT's centred, or nuMB's (from the left, the quick menu at the
+ * right unless quick_menu is 0). The line above it is drawn only in XLT: `if (!NUMB)`. */
+void ui_draw_screen_footer(const Hint *hints, int n, int y, int quick_menu);
 
 void ui_toast(const char *msg);
 void ui_request_launch(const Entry *e);

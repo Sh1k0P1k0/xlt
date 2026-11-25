@@ -1,6 +1,6 @@
 /* xltcast - the game's picture on the PC over USB (XLT Cast).
  *
- * A kernel plugin ARK loads at the "game" runlevel. A few seconds into the game it
+ * A kernel plugin ARK loads at the "game" runlevel (and "pops": PS1 games). A few seconds into the game it
  * loads the system's USB driver, registers its own USB device (XLT sync's IDs,
  * interface protocol 'C') and waits for tools/xltcast.py. The PC starts and stops
  * the frames and reads counters; protocol in xltcast.h.
@@ -43,8 +43,9 @@ void log_line(const char *line, int truncate) /* (audio.c logs too) */
     snprintf(p, sizeof(p), "%sSEPLUGINS/xltcast.log", s_dev);
     SceUID fd = sceIoOpen(p, PSP_O_WRONLY | PSP_O_CREAT | (truncate ? PSP_O_TRUNC : PSP_O_APPEND), 0777);
     if (fd < 0) return;
-    sceIoWrite(fd, line, strlen(line));
-    sceIoWrite(fd, "\n", 1);
+    char buf[256]; /* line and its end in one write: two threads' lines don't run together */
+    int n = snprintf(buf, sizeof(buf), "%s\n", line);
+    sceIoWrite(fd, buf, n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
     sceIoClose(fd);
 }
 #define LOG(...) do { char l_[200]; int n_ = snprintf(l_, sizeof(l_), "%u ", sceKernelGetSystemTimeLow() / 1000); \
@@ -101,13 +102,41 @@ static void *find_usb(const char *lib, u32 nid)
 
 /* ---------------------------------------------------------------- cache */
 
-/* as XLT sync: the USB controller reads RAM itself (hit writeback invalidate, 64-byte lines) */
+static int s_pops; /* a PS1 game (POPS, apitype 0x144 / 0x155 on a Go's own storage) */
+
+/* as XLT sync: the USB controller reads RAM itself (hit writeback invalidate, 64-byte lines).
+ * In POPS the controller got what RAM held before the CPU's writes (zeros from never-used
+ * buffers, older contents from used ones, E1004 2026-11-24): there outgoing data is written
+ * through the uncached address instead (out_buf), and an uncached buffer isn't flushed. */
+/* a buffer's uncached address: kernel memory (0x88...) at 0xA8..., user memory and VRAM
+ * (0x08..., 0x04...) with 0x40000000 (0x48..., 0x44...); 0xC8... is no address at all, and the
+ * plugin's data is kernel memory (two POPS builds touched 0xC8...: a freeze, a dead sender) */
+static unsigned uncached_of(unsigned a)
+{
+    return a >= 0x80000000u ? (a & 0x1FFFFFFFu) | 0xA0000000u : a | 0x40000000u;
+}
+
+static int is_uncached(unsigned a)
+{
+    return a >= 0x80000000u ? (a & 0xE0000000u) == 0xA0000000u : (a & 0x40000000u) != 0;
+}
+
 static void dcache_flush(const void *p, int n)
 {
+    if (is_uncached((unsigned)p)) {
+        __asm__ volatile("sync" : : : "memory");
+        return;
+    }
     unsigned a = (unsigned)p & ~63u, end = ((unsigned)p + n + 63) & ~63u;
     for (; a < end; a += 64)
         __asm__ volatile("cache 0x1B, 0(%0)" : : "r"(a) : "memory");
     __asm__ volatile("sync" : : : "memory");
+}
+
+/* where outgoing data is written: in POPS the buffer's uncached address (see dcache_flush) */
+static void *out_buf(void *p)
+{
+    return s_pops ? (void *)uncached_of((unsigned)p) : p;
 }
 
 /* ---------------------------------------------------------- descriptors */
@@ -268,6 +297,7 @@ static int copy_alloc(void)
     }
     s_copy[0] = (unsigned char *)(((unsigned)sceKernelGetBlockHeadAddr(s_copy_block) + 63) & ~63u);
     s_copy[1] = s_full ? NULL : s_copy[0] + PIECE_MAX;
+    dcache_flush(s_copy[0], s_full ? FULL_SIZE : 2 * PIECE_MAX); /* (POPS writes it uncached: nothing old cached over it) */
     s_st.copy_buf = s_full ? FULL_SIZE : 2 * PIECE_MAX;
     return 0;
 }
@@ -292,6 +322,7 @@ static int ep0_send(const void *data, int size, int wlength)
 {
     int n = size < wlength ? size : wlength;
     memcpy(s_ctl_reply, data, n);
+    /* (the plain flush: this runs in the bus driver's interrupt, and these replies always worked in POPS) */
     dcache_flush(s_ctl_reply, sizeof(s_ctl_reply));
     memset(&s_ctl_req, 0, sizeof(s_ctl_req));
     s_ctl_req.endp = &s_ep[0];
@@ -391,21 +422,49 @@ static int send_from(const void *p, int n)
     return send_start(p, n) < 0 ? -1 : send_end(n);
 }
 
+static int header(unsigned op, unsigned status, unsigned seq, unsigned len, unsigned a, unsigned b, unsigned c, unsigned d);
+
+/* PS1 games: every message ends with a NOP header, which the PC skips. Added while POPS's
+ * replies looked one transfer late (E1004 2026-11-24; the real cause was RAM catching up late,
+ * see dcache_flush and session); kept, as it was there when casting PS1 games was confirmed. */
+static void push(void)
+{
+    static int logged;
+    if (!s_pops)
+        return;
+    static unsigned n;
+    int r = header(XLTC_NOP, 0, ++n, 0, 0, 0, 0, 0); /* (numbered: the order shows on the PC) */
+    if (!logged) {
+        logged = 1;
+        LOG("POPS: a NOP after each message (first: %d)", r);
+    }
+}
+
 static int header(unsigned op, unsigned status, unsigned seq, unsigned len, unsigned a, unsigned b, unsigned c, unsigned d)
 {
-    static XltcHeader h __attribute__((aligned(64)));
-    h.magic = XLTC_MAGIC;
-    h.op = op;
-    h.status = status;
-    h.seq = seq;
-    h.len = len;
-    h.a = a; h.b = b; h.c = c; h.d = d;
-    return send_from(&h, sizeof(h));
+    /* a ring, not one buffer: in POPS a buffer reused at once might still be on its way (E1004
+     * 2026-11-24), so none is reused soon */
+    static struct { XltcHeader h; unsigned char pad[64 - sizeof(XltcHeader)]; } ring[16] __attribute__((aligned(64)));
+    static unsigned k;
+    if (!k)
+        dcache_flush(ring, sizeof(ring)); /* no old cached copy left to land on what is written uncached */
+    XltcHeader *h = out_buf(&ring[k++ & 15].h);
+    h->magic = XLTC_MAGIC;
+    h->op = op;
+    h->status = status;
+    h->seq = seq;
+    h->len = len;
+    h->a = a; h->b = b; h->c = c; h->d = d;
+    return send_from(h, sizeof(*h));
 }
 
 static int reply_stats(const XltcHeader *c)
 {
-    static XltcStats out __attribute__((aligned(64)));
+    static struct { XltcStats s; unsigned char pad[128 - sizeof(XltcStats)]; } ring[4] __attribute__((aligned(64)));
+    static unsigned k;
+    if (!k)
+        dcache_flush(ring, sizeof(ring));
+    XltcStats *o = out_buf(&ring[k++ & 3].s);
     s_st.version = XLTC_VERSION;
     s_st.flips = s_flips;
     s_st.vblanks = s_vblanks;
@@ -414,10 +473,10 @@ static int reply_stats(const XltcHeader *c)
     s_st.mode = s_mode;
     s_st.speed = s_speed;
     s_st.audio_hooks = audio_hooked();
-    out = s_st;
-    if (header(c->op | XLTC_REPLY, XLTC_OK, c->seq, sizeof(out), 0, 0, 0, 0) < 0)
+    *o = s_st;
+    if (header(c->op | XLTC_REPLY, XLTC_OK, c->seq, sizeof(*o), 0, 0, 0, 0) < 0)
         return -1;
-    return send_from(&out, sizeof(out));
+    return send_from(o, sizeof(*o));
 }
 
 /* -------------------------------------------------------------- frames */
@@ -490,7 +549,7 @@ static int send_frame(unsigned number)
             /* the whole frame first, at once (4.5 ms 16-bit, 13 ms 32-bit, inside a 60 fps game's
              * 16.7), then sent; if the game showed another meanwhile, it was drawing into this one */
             u32 g = sceKernelGetSystemTimeLow();
-            unsigned char *buf = s_copy[0];
+            unsigned char *buf = out_buf(s_copy[0]);
             for (int y = 0; y < XLTC_H; y += XLTC_PIECE_ROWS) {
                 int n = XLTC_H - y < XLTC_PIECE_ROWS ? XLTC_H - y : XLTC_PIECE_ROWS;
                 if (method != XLTC_M_UNCACHED)
@@ -522,12 +581,13 @@ static int send_frame(unsigned number)
              * CPU) and dropped, so the reads below see the frame as it is now */
             if (method != XLTC_M_UNCACHED)
                 dcache_flush(cached + y * stride * bpp, n * stride * bpp);
-            copy_rows((unsigned short *)s_copy[k], vram, stride, fmt, y, n);
-            dcache_flush(s_copy[k], bytes);
+            unsigned char *piece = out_buf(s_copy[k]);
+            copy_rows((unsigned short *)piece, vram, stride, fmt, y, n);
+            dcache_flush(piece, bytes);
             s_st.grab_us += sceKernelGetSystemTimeLow() - g;
             if (pending && send_end(pending) < 0) { r = -1; break; }
             pending = 0;
-            if (send_start(s_copy[k], bytes) < 0) { r = -1; break; }
+            if (send_start(piece, bytes) < 0) { r = -1; break; }
             pending = bytes;
         }
         if (r == 0 && pending && send_end(pending) < 0)
@@ -582,7 +642,7 @@ static int command(const XltcHeader *c)
 static int session(void)
 {
     LOG("attached, %s speed", s_speed == 2 ? "high" : "full");
-    unsigned last = s_flips, skipped = 0;
+    unsigned last = s_flips, skipped = 0, heard = 0;
     if (recv_queue() < 0)
         return -1;
     for (;;) {
@@ -596,12 +656,33 @@ static int session(void)
             int n = s_out_req.retcode == 0 ? s_out_req.recvsize : -1;
             dcache_flush(s_cmd, sizeof(s_cmd));
             XltcHeader c;
-            memcpy(&c, s_cmd, sizeof(c));
+            if (s_pops) {
+                /* POPS says a command arrived before it is in RAM (the reply to the one before came
+                 * out: E1004 2026-11-24). Its magic is wiped after each one, so it is read (uncached)
+                 * until the new one is there, 5 ms at most */
+                volatile XltcHeader *u = (volatile XltcHeader *)uncached_of((unsigned)s_cmd);
+                u32 w0 = sceKernelGetSystemTimeLow();
+                while (u->magic != XLTC_MAGIC && n == sizeof(c) && sceKernelGetSystemTimeLow() - w0 < 5000)
+                    sceKernelDelayThread(100);
+                static int told;
+                u32 waited = sceKernelGetSystemTimeLow() - w0;
+                if (waited > 150 && told < 3) {
+                    told++;
+                    LOG("POPS: a command was in RAM %u us after it arrived", (unsigned)waited);
+                }
+                memcpy(&c, (const void *)u, sizeof(c));
+                u->magic = 0;
+            } else {
+                memcpy(&c, s_cmd, sizeof(c));
+            }
             if (recv_queue() < 0)
                 return -1;
             if (n == sizeof(c) && c.magic == XLTC_MAGIC) {
+                if (!heard++)
+                    LOG("first command from the PC: %u", (unsigned)c.op);
                 if (command(&c) < 0)
                     return -1;
+                push();
             } else {
                 LOG("command of %d bytes ignored", n);
             }
@@ -613,6 +694,7 @@ static int session(void)
                 skipped = 0;
                 if (send_frame(last) < 0)
                     return -1;
+                push();
             }
         }
         if (s_mode) { /* the sound mixed since the last time */
@@ -622,6 +704,7 @@ static int session(void)
             if (n > 0) {
                 if (header(XLTC_AUDIO, 0, 0, n * 4, 44100, first, 0, 0) < 0 || send_from(a, n * 4) < 0)
                     return -1;
+                push();
                 s_st.audio_frames += n;
             }
         }
@@ -657,9 +740,21 @@ static int cast_thread(SceSize args, void *argp)
 
 static volatile int s_watching;
 
+/* PS1 games: POPS shows one buffer all the time (041bc000, 512 wide, 565: E1004 2026-11-24),
+ * so a frame is taken every TIMED_VBLANKS vertical blanks instead of at each change. The first
+ * buffers are logged. The threads run above POPS's (popsmain 0x11): raised while POPS looked
+ * like it starved them (it didn't: commands were read before they were in RAM), kept as
+ * confirmed. Both sleep between frames. */
+#define POPS_SEND_PRIO 0x10
+#define POPS_WATCH_PRIO 0x0F
+#define POPS_STILL_VBLANKS 90 /* 1.5 s with the same buffer: it doesn't flip */
+#define TIMED_VBLANKS 2       /* then 30 frames a second */
+
 static int watch_thread(SceSize args, void *argp)
 {
     void *last = NULL;
+    unsigned seen = 0, still = 0, logged = 0, bad = 0;
+    int timed = 0;
     while (s_run && s_watching) {
         /* The wait must really wait: once the game quits and the display goes, it can
          * return at once, and a thread looping on it starves the quitting itself ("Please
@@ -672,13 +767,35 @@ static int watch_thread(SceSize args, void *argp)
         s_vblanks++;
         void *top = NULL;
         int stride = 0, fmt = 0;
-        if (f_getbuf(&top, &stride, &fmt, 0) < 0)
+        int gr = f_getbuf(&top, &stride, &fmt, 0);
+        if (s_pops && logged < 4 && (gr < 0 || top != last)) { /* (a few lines, then quiet) */
+            logged++;
+            LOG("POPS frame buffer: %08x %08x, %d wide, format %d", (unsigned)gr, (unsigned)top, stride, fmt);
+        }
+        if (gr < 0) {
+            if (s_pops && ++bad == 120)
+                LOG("POPS: no frame buffer for 2 s");
             continue;
+        }
         s_stride = stride;
         s_fmt = fmt;
+        seen++;
+        int flip = 0;
         if (top != last) {
+            if (timed && last)
+                LOG("POPS changes buffers after all: frames at each change");
+            timed = 0;
+            still = 0;
             last = top;
             s_top = top;
+            flip = 1;
+        } else if (s_pops && !timed && ++still >= POPS_STILL_VBLANKS && seen > POPS_STILL_VBLANKS) {
+            timed = 1;
+            LOG("POPS shows one buffer (%08x) all the time: a frame every %d vblanks", (unsigned)top, TIMED_VBLANKS);
+        }
+        if (timed && seen % TIMED_VBLANKS == 0)
+            flip = 1;
+        if (flip) {
             s_flips++;
             if (s_ev >= 0)
                 sceKernelSetEventFlag(s_ev, EV_FLIP);
@@ -727,7 +844,8 @@ static int drv_start(int size, void *p)
     s_speed = 0;
     sceKernelClearEventFlag(s_ev, 0); /* EV_QUIT from the last USB off, among others */
     /* homebrew may never give the CPU up: there the sender has to come before it */
-    int prio = s_homebrew ? 0x18 : 0x30;
+    /* (PS1 games too: POPS starved it at 0x30, no command ever reached it, E1004 2026-11-24) */
+    int prio = s_pops ? POPS_SEND_PRIO : s_homebrew ? 0x18 : 0x30;
     s_thread = sceKernelCreateThread("XLTCast", cast_thread, prio, 0x2000, 0, NULL);
     s_st.prio = prio;
     if (s_thread < 0 || sceKernelStartThread(s_thread, 0, NULL) < 0) {
@@ -854,6 +972,7 @@ static void usb_boost(int on)
 
 static void usb_off(const char *why);
 
+
 /* A program that quits by itself (homebrew's own Exit, not the HOME menu) quits with USB on,
  * and the PSP hangs at "Please wait": sceKernelExitGame is patched to turn it off first. */
 #define NID_EXIT_GAME        0x05572A5F
@@ -885,7 +1004,7 @@ static int usb_on(void)
         s_watching = 1;
         /* homebrew that never gives the CPU up starved it at 0x20 (NFSU2VIEW: 0 of 60 vblanks seen,
          * 0.6 fps): there it runs above the sender. Safe: it sleeps a frame if a wait comes back at once */
-        s_watch = sceKernelCreateThread("XLTCastWatch", watch_thread, s_homebrew ? 0x16 : 0x20, 0x1000, 0, NULL);
+        s_watch = sceKernelCreateThread("XLTCastWatch", watch_thread, s_pops ? POPS_WATCH_PRIO : s_homebrew ? 0x16 : 0x20, 0x1000, 0, NULL);
         if (s_watch < 0 || sceKernelStartThread(s_watch, 0, NULL) < 0) {
             LOG("watcher: %08x", (unsigned)s_watch);
             if (s_watch >= 0)
@@ -905,7 +1024,7 @@ static int usb_on(void)
         return -1;
     }
     s_started = 1;
-    if (s_homebrew)
+    if (s_homebrew || s_pops)
         usb_boost(1);
     return 0;
 }
@@ -952,7 +1071,8 @@ static int starter_thread(SceSize args, void *argp)
     u32 (*intercept)(u32, u32) = find("sceController_Service", "sceCtrl_driver", NID_CTRL_INTERCEPT);
     s_ev = sceKernelCreateEventFlag("XLTCastEv", 0, 0, NULL);
     const char *file = sceKernelInitFileName();
-    LOG("%s: %s; L+R+SELECT turns casting on (buttons %s)", s_homebrew ? "homebrew" : "game", file ? file : "?",
+    LOG("%s: %s; L+R+SELECT turns casting on (buttons %s)", s_pops ? "PS1 game" : s_homebrew ? "homebrew" : "game",
+        file && *file ? file : "?",
         peek ? "ok" : "MISSING");
     if (s_ev < 0 || !peek)
         return 0;
@@ -1021,19 +1141,32 @@ int module_start(SceSize args, void *argp)
     char lp[64];
     snprintf(lp, sizeof(lp), "%sSEPLUGINS/xltcast.log", s_dev);
     SceIoStat st;
-    log_line(l, sceIoGetstat(lp, &st) >= 0 && st.st_size > 16 * 1024);
+    int big = sceIoGetstat(lp, &st) >= 0 && st.st_size > 16 * 1024;
+    if (big) { /* the last one kept: a test's lines survive the next start (2026-11-24) */
+        char op[64];
+        snprintf(op, sizeof(op), "%sSEPLUGINS/xltcast.old.log", s_dev);
+        sceIoRemove(op);
+        sceIoRename(lp, op);
+    }
+    log_line(l, big);
     if (!f_getbuf || !f_vblank)
         return 0;
     /* XLT (and ARK's launcher, which is XLT's copy) has its own USB: nothing at all there.
      * Its module isn't loaded yet, so it is told by its path. */
     int api = sceKernelInitApitype();
     s_homebrew = api == 0x141 || api == 0x152;
+    s_pops = api == 0x144 || api == 0x155;
     const char *file = sceKernelInitFileName();
     s_skip = file && (strstr(file, "/PSP/GAME/XLT/") || strstr(file, "ARK_01234"));
     if (s_skip)
         return 0;
     /* the sound: the channels' set-up is noted from the start, as programs reserve them
      * while they boot; and the exit calls, so that USB is off before a program quits */
+    if (s_pops) {
+        char m[96];
+        snprintf(m, sizeof(m), "POPS: plugin data at %08x, uncached %08x", (unsigned)s_cmd, uncached_of((unsigned)s_cmd));
+        log_line(m, 0);
+    }
     int k = audio_hooks_install(), x = exit_hooks_install();
     char a[80];
     snprintf(a, sizeof(a), "sound: %d of 15 calls hooked; exit: %d of 2", k, x);

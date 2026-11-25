@@ -201,6 +201,25 @@ the FAT driver's own writes wrote a copy of the boot sector over a folder's entr
   in `cache/scan.log`, both with millisecond times on the same clock.
   `xltlink.py log` reads both over the cable.
 
+## Updating XLT over sync
+
+XLT Tool's menu has **Update XLT on the PSP…**: it reads the PSP's version from `cache/version.txt` in XLT's
+folder (XLT writes it at start: the running version, and `next <version>` once one is installed), asks GitHub for
+the latest XLT release, and sends either that (checked against GitHub's size and SHA-256, its EBOOT.PBP taken out
+of the zip) or an EBOOT.PBP or release zip chosen on the computer:
+
+```
+PSP/GAME/XLT/UPDATE/RELEASE.TXT   the version on the first line, then the notes
+PSP/GAME/XLT/UPDATE/XLT.PBP       the new EBOOT.PBP, sent last
+```
+
+XLT looks for `XLT.PBP` once a second while sync is on (and once at start). Since a file only appears once it is
+complete and its CRC matches, finding it means it is all there. XLT then opens Settings → About with the update
+dialog ("XLT 1.4.0 from XLT Tool"), or, with something full-screen in front, says so in a toast and on the About
+row. Install does what the Wi-Fi update does (`src/update.c`): the running XLT is kept as `EBOOT-<version>.PBP`,
+the new one takes its place, ARK's start-up copy follows. Any version is taken, the same or an older one too.
+Installed or failed, `UPDATE/` is removed; **Later** leaves it for the next time.
+
 ## Speed
 
 Measured on a PSP-E1004 (USB 2.0 high speed), 64 MB:

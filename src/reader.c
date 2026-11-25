@@ -9,6 +9,14 @@
  *
  *   ↑/↓ line, ←/→ screen, ✕ next screen (then next page), L/R previous /
  *   next page (PDF) or start / end, □ find next, △ menu, ○ back.
+ *
+ * Editing (△ > Edit, UTF-8 text up to 256 KB, textedit.h says which): a line at
+ * a time. ↑/↓ the line, ←/→ a screen, L/R start / end, ✕ edits the line on the
+ * keyboard, □ a new line below, START saves, △ the edit menu (undo, delete,
+ * join...), ○ stops editing (asking first if there are changes). An edit is
+ * made on the UI thread: a new buffer, wrapped at once (small files), the old
+ * one freed through the worker as usual. Saving writes NAME.xltnew, then
+ * swaps it in on the worker.
  */
 #include <pspkernel.h>
 #include <pspge.h>
@@ -27,6 +35,7 @@
 #include "osk.h"
 #include "pdf.h"
 #include "textenc.h"
+#include "textedit.h"
 
 #define TOP 28
 #define BOTTOM 244
@@ -73,6 +82,9 @@ typedef struct {
     int iw, ih;
     int found_page, found_off; /* -1: not found */
     int mark_page, mark_off;   /* saved reading position, -1 if none */
+    int editable;              /* J_LOAD: the text can be edited (fmt), else noedit says why */
+    TedFormat fmt;
+    const char *noedit;
 } Result;
 
 static volatile int s_ready;
@@ -109,7 +121,23 @@ static struct {
     int hl_off, hl_len; /* the last match, highlighted */
     int pending_jump;   /* byte offset to show once the page arrives, -1 if none */
     int use_mark;       /* the first load goes back to the saved position */
+    /* editing */
+    int editable;
+    TedFormat fmt;
+    const char *noedit;
+    int edit;           /* editing (the cursor's line is highlighted) */
+    int cur, cur_no, nlog; /* the cursor line's first byte, its number, how many lines */
+    int undo_n, saved_at;  /* edits that can be undone; undo_n when last saved (-1: never again) */
+    int saving;
+    int edit_on_load;   /* reader_open_edit: editing starts once the text is in */
 } R;
+
+#define UNDO_MAX 32
+typedef struct { int off, old_len, new_len, cur; char *old; } Undo;
+static Undo s_undo[UNDO_MAX];
+static volatile int s_saved;      /* the save job: 1 saved, -1 failed (s_save_err), 0 nothing */
+static char s_save_err[96];
+static void ed_stop(void);
 
 /* ------------------------------------------------------------ positions */
 
@@ -304,8 +332,14 @@ static void do_load(const Job *j, Result *r)
         return;
     }
     int len, used;
+    r->editable = !r->truncated && ted_check(buf, n, &r->fmt, &r->noedit);
     char *t = text_to_utf8(buf, n, j->enc, &len, &used);
     free(buf);
+    if (r->editable && (used != ENC_UTF8 || (j->enc != ENC_AUTO && j->enc != ENC_UTF8))) {
+        r->editable = 0; /* shown in another encoding than the file's own */
+        r->noedit = "Set the Encoding to Auto or UTF-8 to edit this file";
+    }
+    if (r->truncated) r->noedit = "Only files up to 256 KB can be edited";
     if (!t) {
         set_err(r, "Not enough memory for this file");
         return;
@@ -530,6 +564,10 @@ void reader_open(const char *path, int mode)
     R.hl_len = 0;
     R.pending_jump = -1;
     R.use_mark = 1;
+    ed_stop();
+    R.editable = 0;
+    R.noedit = NULL;
+    R.edit_on_load = 0;
     memset(&R.info, 0, sizeof(R.info));
     if (!R.font) R.font = FONT_SMALL;
     R.open = 1;
@@ -539,11 +577,20 @@ void reader_open(const char *path, int mode)
         R.mode = mode; /* AUTO until the worker has looked at the bytes */
 }
 
+void reader_open_edit(const char *path)
+{
+    if (R.open)
+        return;
+    reader_open(path, READER_TEXT);
+    R.edit_on_load = 1;
+}
+
 int reader_is_open(void) { return R.open || R.t.x > 0; }
 int reader_covers(void) { return R.open && R.t.x >= FX(1); }
 
 static void close_reader(void)
 {
+    if (R.edit) ed_stop(); /* (reader_shutdown: unsaved changes are dropped) */
     save_mark();
     R.open = 0;
     R.gen++; /* anything still coming is dropped */
@@ -609,6 +656,9 @@ static void go_page(int p)
     post_job(J_PDF_PAGE, p, R.show_img);
 }
 
+static void set_cur(int off);
+static void show_cur(void);
+
 static void find_next(void)
 {
     if (!R.query[0])
@@ -633,6 +683,10 @@ static void find_next(void)
     R.hl_len = (int)strlen(R.query); /* close enough: folding keeps byte lengths for most letters */
     R.top = line_of(at) - 2;
     clamp_top();
+    if (R.edit) { /* the cursor goes to the match's line */
+        set_cur(at);
+        show_cur();
+    }
 }
 
 static void on_find(const char *text)
@@ -656,15 +710,335 @@ static void on_goto(const char *text)
     go_page(p);
 }
 
-enum { M_FIND, M_FIND_NEXT, M_GOTO, M_ENC, M_LEGACY, M_SIZE, M_IMAGE, M_HEX, M_START, M_END };
+/* ---------------------------------------------------------------- editing */
+
+static int ed_dirty(void) { return R.edit && R.undo_n != R.saved_at; }
+
+static void undo_clear(void)
+{
+    for (int i = 0; i < R.undo_n; i++)
+        free(s_undo[i].old);
+    R.undo_n = 0;
+    R.saved_at = 0;
+}
+
+static void set_cur(int off)
+{
+    R.cur = ted_line_start(R.text, R.len, off);
+    R.cur_no = ted_line_no(R.text, R.len, R.cur);
+}
+
+/* The screen rows the cursor's line takes. */
+static void cur_rows(int *a, int *b)
+{
+    int end = ted_line_end(R.text, R.len, R.cur);
+    *a = line_of(R.cur);
+    *b = end > R.cur ? line_of(end - 1) : *a;
+}
+
+static void show_cur(void)
+{
+    int a, b;
+    cur_rows(&a, &b);
+    if (b >= R.top + rows()) R.top = b - rows() + 1;
+    if (a < R.top || b - a >= rows()) R.top = a; /* a line taller than the screen: its start */
+    clamp_top();
+}
+
+/* The text with del bytes at off replaced by ins, wrapped again; the cursor to cur_after.
+ * undo: kept so △ > Undo can take it back. 0, or -1 (out of memory: nothing changed). */
+static int ed_replace(int off, int del, const char *ins, int ins_len, int cur_after, int undo)
+{
+    int n;
+    char *t = ted_splice(R.text, R.len, off, del, ins, ins_len, &n);
+    char *old = undo ? malloc((size_t)del + 1) : NULL;
+    int *lines = NULL;
+    int nl = t ? wrap(t, n, R.font, TEXT_W, &lines) : -1;
+    if (!t || nl < 0 || (undo && !old)) {
+        free(t);
+        free(lines);
+        free(old);
+        ui_toast("Not enough memory for that change");
+        return -1;
+    }
+    if (undo) {
+        memcpy(old, R.text + off, (size_t)del);
+        if (R.undo_n == UNDO_MAX) { /* the oldest goes */
+            free(s_undo[0].old);
+            memmove(s_undo, s_undo + 1, sizeof(Undo) * (UNDO_MAX - 1));
+            R.undo_n--;
+            R.saved_at = R.saved_at > 0 ? R.saved_at - 1 : -1;
+        }
+        s_undo[R.undo_n++] = (Undo){off, del, ins_len, R.cur, old};
+    }
+    R.gen++; /* a wrap still on its way is for the old text */
+    free_later(R.text, R.lines, NULL, NULL);
+    R.text = t;
+    R.len = n;
+    R.lines = lines;
+    R.nlines = nl;
+    R.nlog = ted_line_count(t, n);
+    R.hl_len = 0;
+    set_cur(cur_after);
+    show_cur();
+    return 0;
+}
+
+static void ed_undo(void)
+{
+    if (!R.undo_n) {
+        ui_toast("Nothing to undo");
+        return;
+    }
+    Undo u = s_undo[R.undo_n - 1];
+    if (ed_replace(u.off, u.new_len, u.old, u.old_len, u.cur, 0) < 0)
+        return;
+    free(u.old);
+    R.undo_n--;
+}
+
+enum { OP_EDIT, OP_BELOW, OP_ABOVE };
+static int s_op;
+static char s_linebuf[OSK_LINE_MAX + 2];
+
+static void on_line(const char *text)
+{
+    if (!text || !R.edit || !R.text)
+        return;
+    int n = (int)strlen(text);
+    int s0 = ted_line_start(R.text, R.len, R.cur), e = ted_line_end(R.text, R.len, R.cur);
+    if (s_op == OP_EDIT) {
+        if (n != e - s0 || memcmp(text, R.text + s0, (size_t)n))
+            ed_replace(s0, e - s0, text, n, s0, 1);
+    } else if (s_op == OP_BELOW) {
+        s_linebuf[0] = '\n';
+        memcpy(s_linebuf + 1, text, (size_t)n);
+        ed_replace(e, 0, s_linebuf, n + 1, e + 1, 1);
+    } else {
+        memcpy(s_linebuf, text, (size_t)n);
+        s_linebuf[n] = '\n';
+        ed_replace(s0, 0, s_linebuf, n + 1, s0, 1);
+    }
+}
+
+static void ed_line(int op)
+{
+    int s0 = ted_line_start(R.text, R.len, R.cur), e = ted_line_end(R.text, R.len, R.cur);
+    s_op = op;
+    if (op != OP_EDIT) {
+        osk_open(op == OP_BELOW ? "New line below" : "New line above", "", OSK_LINE, on_line);
+        return;
+    }
+    if (e - s0 > OSK_LINE_MAX) {
+        ui_toast("This line is too long to edit here (over 1000 bytes)");
+        return;
+    }
+    memcpy(s_linebuf, R.text + s0, (size_t)(e - s0));
+    s_linebuf[e - s0] = 0;
+    char title[48];
+    snprintf(title, sizeof(title), "Line %d", R.cur_no);
+    osk_open(title, s_linebuf, OSK_LINE, on_line);
+}
+
+static void ed_delete(void)
+{
+    int s0 = ted_line_start(R.text, R.len, R.cur), e = ted_line_end(R.text, R.len, R.cur);
+    if (e < R.len) /* the line and its break */
+        ed_replace(s0, e - s0 + 1, "", 0, s0, 1);
+    else if (s0 > 0) /* the last line: the break before it */
+        ed_replace(s0 - 1, e - s0 + 1, "", 0, s0 - 1, 1);
+    else if (e > 0) /* the only line: emptied */
+        ed_replace(0, e, "", 0, 0, 1);
+    else
+        return;
+    ui_toast("Line deleted" DOT "Undo is in the menu");
+}
+
+static void ed_join(void)
+{
+    int e = ted_line_end(R.text, R.len, R.cur);
+    if (e >= R.len) {
+        ui_toast("This is the last line");
+        return;
+    }
+    ed_replace(e, 1, "", 0, R.cur, 1);
+}
+
+static void ed_move(int d) /* d lines (±1), or screens of rows */
+{
+    if (d == -1 && R.cur > 0) set_cur(R.cur - 1);
+    else if (d == 1) {
+        int e = ted_line_end(R.text, R.len, R.cur);
+        if (e < R.len) set_cur(e + 1);
+    } else if (d) {
+        int row = line_of(R.cur) + d;
+        if (row < 0) row = 0;
+        if (row >= R.nlines) row = R.nlines - 1;
+        set_cur(R.lines[row]);
+    }
+    show_cur();
+}
+
+typedef struct { char path[256]; uint8_t *data; int len; } SaveArg;
+
+/* The file as NAME.xltnew, then in place: the old one aside as NAME.xltold until the new one is in. */
+static void job_save_text(void *arg)
+{
+    SaveArg *a = arg;
+    char tmp[272], old[272];
+    snprintf(tmp, sizeof(tmp), "%s.xltnew", a->path);
+    snprintf(old, sizeof(old), "%s.xltold", a->path);
+    const char *err = NULL;
+    SceUID fd = sceIoOpen(tmp, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (fd < 0) {
+        err = "Couldn't save: can't write in this folder";
+    } else {
+        int w = a->len ? sceIoWrite(fd, a->data, a->len) : 0;
+        sceIoClose(fd);
+        if (w != a->len) err = "Couldn't save: is the Memory Stick full?";
+    }
+    if (!err) {
+        sceIoRemove(old);
+        int moved = sceIoRename(a->path, old) >= 0;
+        if (sceIoRename(tmp, a->path) < 0) {
+            if (moved) sceIoRename(old, a->path);
+            err = "Couldn't save: the file wouldn't be replaced";
+        } else if (moved) {
+            sceIoRemove(old);
+        }
+    }
+    if (err) sceIoRemove(tmp);
+    free(a->data);
+    snprintf(s_save_err, sizeof(s_save_err), "%s", err ? err : "");
+    __sync_synchronize();
+    s_saved = err ? -1 : 1;
+}
+
+static void ed_save(void)
+{
+    if (R.saving)
+        return;
+    SaveArg a;
+    a.data = ted_encode(R.text, R.len, &R.fmt, &a.len);
+    if (!a.data) {
+        ui_toast("Not enough memory to save");
+        return;
+    }
+    snprintf(a.path, sizeof(a.path), "%s", R.path);
+    R.saving = 1;
+    R.saved_at = R.undo_n; /* back to -1 if it fails */
+    bg_post(job_save_text, &a, sizeof(a));
+}
+
+/* Saved here and now (before stopping or closing): 0, or -1 with the reason shown. */
+static int ed_save_now(void)
+{
+    if (R.saving)
+        bg_flush(); /* the one on its way first */
+    SaveArg a;
+    a.data = ted_encode(R.text, R.len, &R.fmt, &a.len);
+    if (!a.data) {
+        ui_toast("Not enough memory to save");
+        return -1;
+    }
+    snprintf(a.path, sizeof(a.path), "%s", R.path);
+    job_save_text(&a);
+    int ok = s_saved > 0;
+    s_saved = 0;
+    R.saving = 0;
+    ui_toast(ok ? "Saved" : s_save_err);
+    if (ok) R.saved_at = R.undo_n;
+    return ok ? 0 : -1;
+}
+
+static void ed_start(void)
+{
+    if (!R.editable) {
+        ui_toast(R.noedit ? R.noedit : "This file can't be edited");
+        return;
+    }
+    undo_clear();
+    R.edit = 1;
+    R.hl_len = 0;
+    R.nlog = ted_line_count(R.text, R.len);
+    set_cur(R.top < R.nlines ? R.lines[R.top] : 0);
+    show_cur();
+}
+
+static void ed_stop(void)
+{
+    R.edit = 0;
+    undo_clear();
+}
+
+static void ed_discard(void)
+{
+    ed_stop();
+    drop_doc_buffers();
+    post_job(J_LOAD, 0, 0); /* the file as it is on the stick (R.top stays) */
+}
+
+enum { M_FIND, M_FIND_NEXT, M_GOTO, M_ENC, M_LEGACY, M_SIZE, M_IMAGE, M_HEX, M_START, M_END,
+       M_EDIT, M_UNDO, M_LINE, M_BELOW, M_ABOVE, M_DELETE, M_JOIN, M_SAVE, M_STOP,
+       M_ASK_SAVE, M_ASK_DISCARD, M_ASK_KEEP };
 
 static void fill_menu(MenuItem *it, int *n);
+
+/* Stopping with changes not saved: Save / Discard / Keep editing (then_close: and close the reader). */
+static int s_ask_close;
+
+static void ask_cb(int id, int dir)
+{
+    (void)dir;
+    menu_close();
+    if (id == M_ASK_SAVE) {
+        if (ed_save_now() < 0) return; /* not saved: still editing */
+        ed_stop();
+        if (s_ask_close) close_reader();
+    } else if (id == M_ASK_DISCARD) {
+        if (s_ask_close) {
+            ed_stop();
+            close_reader();
+        } else {
+            ed_discard();
+        }
+    }
+}
+
+static void ask_unsaved(int then_close)
+{
+    MenuItem it[3];
+    memset(it, 0, sizeof(it));
+    it[0].id = M_ASK_SAVE;
+    snprintf(it[0].label, sizeof(it[0].label), "Save");
+    it[1].id = M_ASK_DISCARD;
+    snprintf(it[1].label, sizeof(it[1].label), "Discard the changes");
+    it[1].danger = 1;
+    it[2].id = M_ASK_KEEP;
+    snprintf(it[2].label, sizeof(it[2].label), "Keep editing");
+    it[2].gap = 1;
+    s_ask_close = then_close;
+    menu_open("Unsaved changes", R.name, it, 3, ask_cb);
+}
 
 static void menu_cb(int id, int dir)
 {
     if (R.loading)
         return; /* one job at a time: wait for the page */
     switch (id) {
+    case M_EDIT: menu_close(); ed_start(); return;
+    case M_UNDO: menu_close(); ed_undo(); return;
+    case M_LINE: menu_close(); ed_line(OP_EDIT); return;
+    case M_BELOW: menu_close(); ed_line(OP_BELOW); return;
+    case M_ABOVE: menu_close(); ed_line(OP_ABOVE); return;
+    case M_DELETE: menu_close(); ed_delete(); return;
+    case M_JOIN: menu_close(); ed_join(); return;
+    case M_SAVE: menu_close(); ed_save(); return;
+    case M_STOP:
+        menu_close();
+        if (ed_dirty()) ask_unsaved(0);
+        else ed_stop();
+        return;
     case M_FIND:
         menu_close();
         osk_open("Find", R.query, OSK_TEXT, on_find);
@@ -736,6 +1110,27 @@ static void fill_menu(MenuItem *it, int *n)
     int k = 0;
 #define ADD(i, l) do { memset(&it[k], 0, sizeof(MenuItem)); it[k].id = (i); \
         snprintf(it[k].label, sizeof(it[k].label), "%s", (l)); k++; } while (0)
+    if (R.edit) {
+        if (R.undo_n) ADD(M_UNDO, "Undo");
+        ADD(M_LINE, "Edit this line");
+        it[k - 1].gap = R.undo_n > 0;
+        ADD(M_BELOW, "New line below");
+        ADD(M_ABOVE, "New line above");
+        ADD(M_JOIN, "Join with the next line");
+        ADD(M_DELETE, "Delete this line");
+        it[k - 1].danger = 1;
+        ADD(M_SAVE, R.saving ? "Saving..." : "Save");
+        it[k - 1].gap = 1;
+        ADD(M_STOP, "Stop editing");
+        ADD(M_FIND, "Find...");
+        it[k - 1].gap = 1;
+        if (R.query[0]) ADD(M_FIND_NEXT, "Find next");
+        ADD(M_SIZE, "Text size");
+        snprintf(it[k - 1].value, sizeof(it[k - 1].value), "%s", R.font == FONT_SMALL ? "Small" : "Large");
+        *n = k;
+        return;
+    }
+    if (R.mode == READER_TEXT && R.text) ADD(M_EDIT, "Edit");
     if (R.mode != READER_HEX) {
         ADD(M_FIND, "Find...");
         if (R.query[0]) ADD(M_FIND_NEXT, "Find next");
@@ -797,6 +1192,22 @@ int reader_input(unsigned int p)
     if (!R.open)
         return 0;
     int screen = showing_img() ? IMG_VIEW_H - 24 : rows() - 1;
+    if (R.edit) {
+        if (p & PSP_CTRL_CIRCLE) {
+            if (ed_dirty()) ask_unsaved(0);
+            else ed_stop();
+        } else if (p & PSP_CTRL_TRIANGLE) open_menu();
+        else if (p & PSP_CTRL_UP) ed_move(-1);
+        else if (p & PSP_CTRL_DOWN) ed_move(1);
+        else if (p & PSP_CTRL_LEFT) ed_move(-screen);
+        else if (p & PSP_CTRL_RIGHT) ed_move(screen);
+        else if (p & PSP_CTRL_LTRIGGER) { set_cur(0); show_cur(); }
+        else if (p & PSP_CTRL_RTRIGGER) { set_cur(R.len); show_cur(); }
+        else if (p & PSP_CTRL_CROSS) ed_line(OP_EDIT);
+        else if (p & PSP_CTRL_SQUARE) ed_line(OP_BELOW);
+        else if (p & PSP_CTRL_START) ed_save();
+        return 1;
+    }
     if (p & PSP_CTRL_CIRCLE) {
         close_reader();
         return 1;
@@ -836,6 +1247,19 @@ int reader_step(void)
     int old = R.t.x;
     spring_step(&R.t);
     int dirty = R.t.x != old;
+    if (s_saved) {
+        __sync_synchronize();
+        int ok = s_saved > 0;
+        s_saved = 0;
+        R.saving = 0;
+        dirty = 1;
+        if (ok) {
+            ui_toast("Saved");
+        } else {
+            R.saved_at = -1; /* still to be saved */
+            ui_toast(s_save_err);
+        }
+    }
     if (s_ready) {
         Result r = s_res;
         __sync_synchronize();
@@ -887,6 +1311,9 @@ int reader_step(void)
                 R.truncated = r.truncated;
                 R.file_size = r.file_size;
                 R.enc_used = r.enc_used;
+                R.editable = r.kind == J_LOAD && r.mode == READER_TEXT && r.editable;
+                R.fmt = r.fmt;
+                R.noedit = r.noedit;
                 if (r.kind == J_PDF_OPEN || r.kind == J_PDF_PAGE) {
                     if (r.page != R.page || r.kind == J_PDF_OPEN) { /* a new page starts at its top */
                         R.top = 0;
@@ -910,6 +1337,11 @@ int reader_step(void)
                     R.top = line_of(r.mark_off);
                 R.use_mark = 0;
                 clamp_top();
+                if (R.edit_on_load) {
+                    R.edit_on_load = 0;
+                    ed_start();
+                    if (R.edit && R.len == 0) ed_line(OP_EDIT); /* a new file: the keyboard at once */
+                }
             }
         }
     }
@@ -931,12 +1363,19 @@ static int measure(int font, const char *s, int n)
 static void draw_text(void)
 {
     int lh = line_h(), n = rows();
+    int ca = -1, cb = -1;
+    if (R.edit) /* the cursor's line: a band behind its rows, a bar on the left */
+        cur_rows(&ca, &cb);
     for (int k = 0; k < n && R.top + k < R.nlines; k++) {
         int i = R.top + k;
         int off = R.lines[i], end = i + 1 < R.nlines ? R.lines[i + 1] : R.len;
         while (end > off && (R.text[end - 1] == '\n' || R.text[end - 1] == ' '))
             end--;
         int y = TOP + k * lh;
+        if (i >= ca && i <= cb) {
+            gfx_rect(TEXT_X - 8, y, SCREEN_W - 2 * TEXT_X + 4, lh, C_RAISED);
+            gfx_rect(TEXT_X - 8, y, 3, lh, C_FOCUS);
+        }
         if (R.hl_len && R.hl_off < end && R.hl_off + R.hl_len > off) {
             int a = R.hl_off > off ? R.hl_off : off, b = R.hl_off + R.hl_len < end ? R.hl_off + R.hl_len : end;
             int x0 = TEXT_X + measure(R.font, R.text + off, a - off);
@@ -998,7 +1437,9 @@ void reader_draw(const SysStatus *st)
     gfx_rect(0, 0, SCREEN_W, SCREEN_H, C_BG);
 
     char title[160], pos[48] = "";
-    if (R.mode == READER_PDF && R.pages)
+    if (R.edit)
+        snprintf(pos, sizeof(pos), "Line %d / %d%s", R.cur_no, R.nlog, ed_dirty() ? DOT "edited" : "");
+    else if (R.mode == READER_PDF && R.pages)
         snprintf(pos, sizeof(pos), "Page %d / %d", R.page + 1, R.pages);
     else if (R.mode == READER_TEXT && R.nlines > rows())
         snprintf(pos, sizeof(pos), "%d%%", (R.top + rows()) * 100 / R.nlines > 100 ? 100 : (R.top + rows()) * 100 / R.nlines);
@@ -1055,7 +1496,7 @@ void reader_draw(const SysStatus *st)
         gfx_text_right(FONT_SMALL, SCREEN_W - 14, BOTTOM - 16, note, C_FOCUS);
     }
 
-    gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     static const Hint pdf_hints[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Next"},
         {-1, "L/R", 0, "Page"},
@@ -1070,17 +1511,26 @@ void reader_draw(const SysStatus *st)
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Menu"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
+    static const Hint edit_hints[] = {
+        {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Edit line"},
+        {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "New line"},
+        {-1, "START", 0, "Save"},
+        {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Menu"},
+        {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Done"},
+    };
     static const Hint hex_hints[] = {
-        {-1, "<-/->", 0, "Page"},
+        {-1, KEY_LR, 0, "Page"},
         {-1, "L/R", 0, "Start / end"},
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Menu"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
-    if (R.mode == READER_PDF)
-        ui_draw_hints(pdf_hints, COUNT(pdf_hints), SCREEN_W / 2, FOOTER_Y + 5);
+    if (R.edit)
+        ui_draw_screen_footer(edit_hints, COUNT(edit_hints), FOOTER_Y + 5, 1);
+    else if (R.mode == READER_PDF)
+        ui_draw_screen_footer(pdf_hints, COUNT(pdf_hints), FOOTER_Y + 5, 1);
     else if (R.mode == READER_HEX)
-        ui_draw_hints(hex_hints, COUNT(hex_hints), SCREEN_W / 2, FOOTER_Y + 5);
+        ui_draw_screen_footer(hex_hints, COUNT(hex_hints), FOOTER_Y + 5, 1);
     else
-        ui_draw_hints(text_hints, COUNT(text_hints), SCREEN_W / 2, FOOTER_Y + 5);
+        ui_draw_screen_footer(text_hints, COUNT(text_hints), FOOTER_Y + 5, 1);
     gfx_set_opacity(256);
 }

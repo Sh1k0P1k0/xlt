@@ -128,3 +128,91 @@ int arktext_set_clock(const char *text, const char *id, int clock, int ark4, cha
     }
     return err ? -1 : len;
 }
+
+/* Runlevels that can lock XLT's clock: ARK's "game" also matches homebrew (apitype
+ * 0x141/0x152), "always" everything, and a runlevel with '/' matches the file
+ * that was started. */
+static int level_covers_app(const char *rl, const char *path)
+{
+    return !strcasecmp(rl, "game") || !strcasecmp(rl, "always") || !strcasecmp(rl, "all") ||
+           !strcasecmp(rl, "homebrew") || !strcasecmp(rl, "app") || !strcasecmp(rl, path);
+}
+
+/* ARK-5's settingsHandler: an "on" line sets the clock; an "off" line clears it only when
+ * the clock set is that line's own speed ("cpuclock:133, off" doesn't undo 333); an
+ * off custom "cpuclock:N" clears the custom speed. Returns the clock class XLT gets
+ * (CLOCK_133..CLOCK_333, CLOCK_AUTO for a custom speed), or -1 when free. Up to 8
+ * distinct keys of lines that set it go to keys[]. */
+static int ark_clock_for(const char *text, const char *path, char keys[][40], int *nkeys)
+{
+    int state = -1;
+    if (nkeys) *nkeys = 0;
+    const char *line = text;
+    while (*line) {
+        const char *nl = strchr(line, '\n');
+        int n = nl ? (int)(nl - line) : (int)strlen(line);
+        char raw[160], tmp[160], *p[3];
+        snprintf(raw, sizeof(raw), "%.*s", n < 159 ? n : 159, line);
+        char *cr = strchr(raw, '\r');
+        if (cr) *cr = 0;
+        int c;
+        if (split3(raw, tmp, sizeof(tmp), p) && (c = clock_of_key(p[1])) >= 0 && level_covers_app(p[0], path)) {
+            if (is_on(p[2])) {
+                state = c;
+                if (nkeys) {
+                    int dup = 0;
+                    for (int k = 0; k < *nkeys; k++)
+                        dup |= !strcasecmp(keys[k], p[1]);
+                    if (!dup && *nkeys < 8 && strlen(p[1]) < 40)
+                        snprintf(keys[(*nkeys)++], 40, "%s", p[1]);
+                }
+            } else if (state == c) {
+                state = -1;
+            }
+        }
+        line += n + (nl ? 1 : 0);
+    }
+    return state;
+}
+
+int arktext_free_clock(const char *text, const char *path, int ark4, char *out, int cap)
+{
+    if (!path || !path[0] || strchr(path, ',') || strlen(path) > 120)
+        return -1;
+    (void)ark4; /* the off lines use the keys as the file spells them */
+    char keys[8][40];
+    int nkeys = 0;
+    if (ark_clock_for(text, path, keys, &nkeys) < 0)
+        return 0;
+    /* Every line as it was, except clock lines for `path`; then an off line for each
+     * speed a line that covers XLT sets, last (any order clears whichever is set). */
+    int len = 0, err = 0;
+    char buf[200];
+    const char *line = text;
+    while (*line) {
+        const char *nl = strchr(line, '\n');
+        int n = nl ? (int)(nl - line) : (int)strlen(line);
+        int keep = n;
+        while (keep > 0 && line[keep - 1] == '\r')
+            keep--;
+        char raw[160], tmp[160], *p[3];
+        int drop = 0;
+        if (keep < (int)sizeof(raw)) {
+            snprintf(raw, sizeof(raw), "%.*s", keep, line);
+            drop = split3(raw, tmp, sizeof(tmp), p) && clock_of_key(p[1]) >= 0 && !strcasecmp(p[0], path);
+        }
+        if (!drop && (keep >= (int)sizeof(raw) || trim(raw)[0])) {
+            err |= put(out, &len, cap, line, keep);
+            err |= put(out, &len, cap, "\n", 1);
+        }
+        line += n + (nl ? 1 : 0);
+    }
+    for (int k = 0; k < nkeys; k++) {
+        int m = snprintf(buf, sizeof(buf), "%s, %s, off\n", path, keys[k]);
+        err |= put(out, &len, cap, buf, m);
+    }
+    if (err)
+        return -1;
+    out[len < cap ? len : cap - 1] = 0;
+    return ark_clock_for(out, path, NULL, NULL) < 0 ? len : -1; /* still locked: say so */
+}

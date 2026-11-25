@@ -521,7 +521,7 @@ void viewer_draw(void)
 
         gfx_rect(0, 248, SCREEN_W, 24, 0xA0000000u);
         static const Hint flat_h[] = {
-            {-1, "<-/->", 0, "Pictures"},
+            {-1, KEY_LR, 0, "Pictures"},
             {-1, "L/R", 0, "Zoom"},
             {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Turn"},
             {-1, "START", 0, "Slideshow"},
@@ -532,8 +532,8 @@ void viewer_draw(void)
             {-1, "L/R", 0, "Zoom"},
             {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Fit"},
         };
-        if (V.zoom > 256) ui_draw_hints(zoom_h, COUNT(zoom_h), SCREEN_W / 2, 253);
-        else ui_draw_hints(flat_h, COUNT(flat_h) - (V.src ? 1 : 0), SCREEN_W / 2, 253);
+        if (V.zoom > 256) ui_draw_screen_footer(zoom_h, COUNT(zoom_h), 253, 1);
+        else ui_draw_screen_footer(flat_h, COUNT(flat_h) - (V.src ? 1 : 0), 253, 1);
     }
     const char *pill = V.toast_left ? V.toast
                      : V.state == ST_LOADING && V.have_image ? "Loading..."

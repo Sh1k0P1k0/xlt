@@ -17,6 +17,7 @@
 #include "webfetch.h"
 #include "imgdecode.h"
 #include "net.h"
+#include "library.h"
 #include "textenc.h"
 #include "cacerts_data.h"
 
@@ -61,6 +62,8 @@ typedef struct {
     SceUID lock, work;
 } Queue;
 
+#define WIFI_IDLE_MS (2 * 60 * 1000)
+
 static Queue s_net, s_cpu;
 static SceUID s_res_lock = -1;
 static WebResult s_res[64];
@@ -92,9 +95,12 @@ static void q_put(Queue *q, Job *j)
     sceKernelSignalSema(q->work, 1);
 }
 
-static Job *q_take(Queue *q)
+/* timeout_us 0: waits for good. NULL when it ran out. */
+static Job *q_take(Queue *q, unsigned timeout_us)
 {
-    sceKernelWaitSema(q->work, 1, NULL);
+    SceUInt t = timeout_us;
+    if (sceKernelWaitSema(q->work, 1, timeout_us ? &t : NULL) < 0)
+        return NULL;
     sceKernelWaitSema(q->lock, 1, NULL);
     Job *j = q->head;
     if (j) {
@@ -781,9 +787,24 @@ static void do_download(Job *j)
 static int net_thread(SceSize args, void *argp)
 {
     (void)args; (void)argp;
+    int last_use = ms_now();
     for (;;) {
-        Job *j = q_take(&s_net);
-        if (!j) continue;
+        /* Wi-Fi off when unused: no page, picture or download for WIFI_IDLE_MS (the browser
+         * may still be open, or an update check done). The next job joins again. */
+        Job *j = q_take(&s_net, net_running() ? 5000000 : 0);
+        if (!j) {
+            if (net_running() && ms_now() - last_use >= WIFI_IDLE_MS) {
+                if (s_curl) { curl_easy_cleanup(s_curl); s_curl = NULL; }
+                int t0 = ms_now();
+                net_shutdown();
+                char note[96];
+                snprintf(note, sizeof(note), "wifi: off after %d s unused (%d ms to stop)",
+                         (ms_now() - last_use) / 1000, ms_now() - t0);
+                wlog("%s", note);
+                library_note(note);
+            }
+            continue;
+        }
         if (j->kind == J_DOWNLOAD) {
             do_download(j);
             s_dl_active = 0;
@@ -795,6 +816,7 @@ static int net_thread(SceSize args, void *argp)
         }
         s_phase = WF_IDLE;
         job_free(j);
+        last_use = ms_now();
     }
     return 0;
 }
@@ -1064,7 +1086,7 @@ static int cpu_thread(SceSize args, void *argp)
 {
     (void)args; (void)argp;
     for (;;) {
-        Job *j = q_take(&s_cpu);
+        Job *j = q_take(&s_cpu, 0);
         if (!j) continue;
         switch (j->kind) {
         case J_PARSE: do_parse(j); break;

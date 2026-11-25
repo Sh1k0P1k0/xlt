@@ -48,4 +48,16 @@ int update_known(void);
 void update_request_restart(void);   /* the dialog's Restart */
 int update_take_restart(void);       /* main loop: 1 once after a request */
 
+/* From XLT Tool, over USB sync: the Tool leaves the new XLT in UPDATE/ in XLT's folder
+ * (XLT.PBP, and RELEASE.TXT: its version on the first line, then its notes), XLT.PBP last.
+ * update_usb_look() (at start, and when the PC's changes have settled) finds it and makes
+ * it the offer: UP_AVAILABLE with update_from_usb() 1, so update_install() installs it
+ * as it would GitHub's, without Wi-Fi. Any version is taken, the same or an older one
+ * too (the Tool says what it sends). Installed or failed, UPDATE/ is removed; "Later"
+ * leaves it for the next time.
+ * For the Tool, cache/version.txt says the running version ("1.3.1"), and after an
+ * install a second line "next 1.4.0". */
+int update_usb_look(void);           /* 1 when a new offer came in since the last look */
+int update_from_usb(void);           /* the offer (or install) is the Tool's */
+
 #endif

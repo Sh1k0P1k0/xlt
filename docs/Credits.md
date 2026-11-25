@@ -52,6 +52,12 @@ interface, and its weighted-prediction workaround, which `src/h264strip.c` follo
 brightness range and re-applying it after waking), ARK's own `ICON1.PMF` (the layout `tools/make_pmf.py`
 writes), PSPDX / pspkit-https (heap size, network start-up) and RFC 3986 (relative links). The interface sounds are synthesised by `tools/bake_sounds.py`.
 
+### Works with, not included
+
+- [USBNet](https://github.com/chriopter/pspkit-usbnet) by chriopter (MIT): the PSP's internet over the USB cable
+  (Settings → Network → Internet over USB). XLT doesn't carry it: XLT Tool downloads its release, and XLT
+  installs it where PSPDX does (`src/netplug.c`).
+
 ## Trademarks
 
 PlayStation, PSP, PlayStation Portable, UMD, XMB and the PlayStation button symbols (△ ○ ✕ □) are

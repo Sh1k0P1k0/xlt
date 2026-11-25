@@ -10,6 +10,10 @@
 #include <pspdisplay.h>
 #include <psppower.h>
 #include "update.h"
+#include "settings.h"
+#include "search.h"
+#include "nowplaying.h"
+#include "savedata.h"
 #include "btntest.h"
 #include "quitdlg.h"
 #include "gfx.h"
@@ -49,6 +53,9 @@
 #include "recorder.h"
 #include "shotplug.h"
 #include "castplug.h"
+#include "crashplug.h"
+#include "netplug.h"
+#include "side.h"
 #include "arklauncher.h"
 #include "version.h"
 #include <pspctrl.h>
@@ -203,12 +210,63 @@ static void safe_start_check(char *dir, int cap)
     clear_files(p);
 }
 
+/* nuMB N6: how long the interface's frames take, logged to cache/scan.log every 10 s of
+ * drawing while cache/framelog exists (a switch for testing: nothing is counted otherwise).
+ * build = the CPU making the frame's list, ge = waiting for the GE to finish it; a frame is
+ * late when both together pass a vblank (16.7 ms). */
+static struct { int on, n, late; unsigned build_sum, build_max, ge_sum, ge_max; SceInt64 since; } s_fl;
+
+static void framelog_init(const char *dir)
+{
+    char p[300];
+    snprintf(p, sizeof(p), "%scache/framelog", dir);
+    SceIoStat st;
+    s_fl.on = sceIoGetstat(p, &st) >= 0;
+    if (s_fl.on) library_note("frame log on (cache/framelog)");
+}
+
+static void framelog_add(unsigned build_us, unsigned ge_us)
+{
+    if (!s_fl.on)
+        return;
+    SceInt64 now = sceKernelGetSystemTimeWide();
+    if (!s_fl.n) s_fl.since = now;
+    s_fl.n++;
+    s_fl.build_sum += build_us; if (build_us > s_fl.build_max) s_fl.build_max = build_us;
+    s_fl.ge_sum += ge_us; if (ge_us > s_fl.ge_max) s_fl.ge_max = ge_us;
+    if (build_us + ge_us > 16683) s_fl.late++;
+    if (now - s_fl.since < 10000000)
+        return;
+    char note[200];
+    snprintf(note, sizeof(note), "frames (%s): %d drawn, build avg %u.%u ms max %u.%u, GE wait avg %u.%u max %u.%u, %d late",
+             UI_MODE_NAMES[g_cfg.ui_mode == UI_NUMB ? UI_NUMB : UI_XLT], s_fl.n,
+             s_fl.build_sum / s_fl.n / 1000, s_fl.build_sum / s_fl.n / 100 % 10, s_fl.build_max / 1000, s_fl.build_max / 100 % 10,
+             s_fl.ge_sum / s_fl.n / 1000, s_fl.ge_sum / s_fl.n / 100 % 10, s_fl.ge_max / 1000, s_fl.ge_max / 100 % 10, s_fl.late);
+    library_note(note);
+    s_fl.n = s_fl.late = 0;
+    s_fl.build_sum = s_fl.build_max = s_fl.ge_sum = s_fl.ge_max = 0;
+}
+
 /* "ms0:/PSP/GAME/XLT/EBOOT.PBP" -> "ms0:/PSP/GAME/XLT/" */
+/* An ARK clock line such as "game, cpuclock:333, on" also covers XLT and locks its
+ * clock (ARK then ignores scePowerSet*): XLT adds its own off line after it. */
+static void job_free_clock(void *arg)
+{
+    (void)arg;
+    int r = ark_free_clock();
+    char note[160];
+    snprintf(note, sizeof(note), "clock: %s (cpu %d bus %d)",
+             r > 0 ? "an ARK clock line covered XLT: own line added to SETTINGS.TXT, free from the next start"
+             : r < 0 ? "an ARK clock line covers XLT, COULDN'T add its own line" : "XLT sets its own",
+             scePowerGetCpuClockFrequencyInt(), scePowerGetBusClockFrequencyInt());
+    library_note(note);
+}
+
 static void app_dir(char *out, int n, const char *self)
 {
     const char *slash = strrchr(self, '/');
     if (!slash) {
-        snprintf(out, n, "ms0:/PSP/GAME/XLT/");
+        snprintf(out, n, XLT_HOME_DIR);
         return;
     }
     int len = (int)(slash - self) + 1;
@@ -308,10 +366,12 @@ int main(int argc, char *argv[])
 {
     fit_heap(); /* before anything allocates */
     SceInt64 t_start = sceKernelGetSystemTimeWide();
-    const char *self = argc > 0 && argv[0] ? argv[0] : "ms0:/PSP/GAME/XLT/EBOOT.PBP";
+    const char *self = argc > 0 && argv[0] ? argv[0] : XLT_HOME_DIR "EBOOT.PBP";
     char dir[256];
     app_dir(dir, sizeof(dir), self);
     ark_init();
+    ark_set_self(self); /* its own clock line in ARK's SETTINGS.TXT (ark_free_clock) */
+    power_set_note(library_note);
     launcher_early(self, dir, sizeof(dir)); /* as ARK's VBOOT.PBP: the data stays in XLT's own folder */
     char lib_self[300];
     snprintf(lib_self, sizeof(lib_self), "%s", self);
@@ -335,13 +395,16 @@ int main(int argc, char *argv[])
     sysctl_storage_load(dir); /* the free space measured last time */
     theme_set(g_cfg.theme);   /* before anything is drawn, the boot screen too */
     history_init(dir);       /* before the library: it orders the Recent row */
-    history_import_play();   /* the play time xltshot counted in games since the last start */
+    if (!XLT_SIDE_BUILD)     /* nuMB: xltplay.bin is the real XLT's, which deletes it once read (side.h) */
+        history_import_play(); /* the play time xltshot counted in games since the last start */
     int scan = !g_safe_start && !back_from_game(dir);
     library_init(dir, lib_self, scan); /* cached index now, rescan in the background (unless back from a game) */
     thumbs_init(dir);
     cc_init(dir);            /* restores the saved brightness */
     shotplug_install();      /* the in-game screenshot plugin, on the background worker */
     castplug_apply(g_cfg.cast); /* XLT Cast's plugin: installed or updated, its line on or off (worker) */
+    netplug_apply(g_cfg.usb_net); /* Internet over USB's plugin: the same (worker) */
+    crashplug_apply(g_cfg.crash_log); /* the crash log's plugin: the same (worker) */
     int launcher_pending = 1; /* "Start XLT at boot" is seen to once the boot screen is gone (main loop) */
     video_init(dir);
     fm_init(dir);
@@ -414,11 +477,15 @@ int main(int argc, char *argv[])
             dirty = saver_dirty; /* 30 fps; nothing underneath is drawn */
         else
             dirty |= saver_dirty;
+        power_frame(dirty && !saver_covers()); /* before drawing: the CPU is up for the frame */
         int drew = dirty;
         if (dirty) {
+            SceInt64 f0 = sceKernelGetSystemTimeWide();
             gfx_begin(g_th->bg); /* the theme's background */
             ui_draw(&st);
+            unsigned build = (unsigned)(sceKernelGetSystemTimeWide() - f0);
             gfx_end(); /* waits for vblank */
+            framelog_add(build, (unsigned)gfx_ge_wait_us());
             dirty = 0;
         } else {
             sceDisplayWaitVblankStartCB();
@@ -433,6 +500,8 @@ int main(int argc, char *argv[])
                          launcher_running() ? "ARK's launcher" : "an app", ark_version());
                 library_note(note);
             }
+            framelog_init(dir); /* (after the boot screen: its frames aren't the interface's) */
+            bg_post(job_free_clock, NULL, 0);
         }
         char rec_msg[96];
         if (rec_take_message(rec_msg, sizeof(rec_msg)) || shotplug_take_message(rec_msg, sizeof(rec_msg))) {
@@ -459,6 +528,26 @@ int main(int argc, char *argv[])
         if (ui_take_launch(&e)) {
             start(&e, dir, 0);
             dirty = 1; /* only reached if the launch failed */
+        }
+        /* XLT Tool's update over USB sync (update.h): looked for once a second while sync is on, and
+         * once after the boot screen (one sent before a restart). Offered at once when nothing
+         * full-screen is in front; else the About row says it, with a toast. */
+        {
+            static int frames, looked_once;
+            int look = !boot_active() && (!looked_once || (usbsync_active() && ++frames >= 60));
+            if (look) {
+                frames = 0;
+                looked_once = 1;
+                if (update_usb_look()) {
+                    if (video_covers() || viewer_covers() || reader_covers() || web_covers() || fm_covers() ||
+                        np_covers() || search_covers() || sd_covers() || btntest_covers() || cc_usb_covers() ||
+                        saver_covers())
+                        ui_toast("XLT Tool sent XLT" " \xC2\xB7 " "Settings > About installs it");
+                    else
+                        settings_offer_update();
+                    dirty = 1;
+                }
+            }
         }
         if (update_take_restart()) { /* Settings > About: an update was installed */
             memset(&e, 0, sizeof(e));

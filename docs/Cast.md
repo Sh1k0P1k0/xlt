@@ -10,7 +10,8 @@ its EBOOT and installs, like xltshot. XLT Tool's side is described in its
 
 **Settings → XLT → XLT Cast** (`xlt_cast` in `xlt.ini`, off at first). At every start and when the setting
 changes, XLT writes or updates `SEPLUGINS/xltcast.prx` (`src/castplug.c`, from `build/xltcast_data.h`) and
-adds or switches its lines in `SEPLUGINS/PLUGINS.TXT` (`plugtext_switch_named`, host-tested in
+adds or switches its lines in `SEPLUGINS/PLUGINS.TXT`: `game` for PSP games and homebrew, `pops` for PS1 games
+(`plugtext_switch_named`, host-tested in
 `tests/test_plugtext.c`). ARK copies plugins at boot, so a new plugin takes over after XLT has started twice.
 
 In a game, the plugin waits with USB off. **L+R+SELECT** turns its USB device on and casts; L+R+SELECT again
@@ -65,6 +66,20 @@ picture. The game's own sound is untouched.
 Homebrew ports that use the whole PSP (NFSU2VIEW, 32-bit colour) starved the USB stack's own threads, so in
 homebrew the watcher and sender run at higher priorities while casting (about 20 fps there).
 
+## PS1 games
+
+ARK loads the plugin for PS1 games through its `pops` line. Three things differ there:
+
+- **The picture:** POPS shows one 512-wide 565 buffer and draws into it all the time, so the frame buffer never
+  changes. After 1.5 s without a change the plugin takes a frame every second vertical blank (30 fps).
+- **USB and RAM:** the bus driver reports a transfer done before RAM has caught up. So in POPS everything the PC
+  gets is written through the uncached address (kernel memory: 0xA8...), the header and stats buffers are rings,
+  each message ends with a `NOP` header the PC skips, and each command is waited for before it is read.
+- **No sound:** POPS's sound never passes the main CPU, as far as was looked: no `sceAudio` module is loaded, and
+  the Media Engine emulates the PS1's sound chip. So PS1 games cast the picture only.
+
+Measured with a PS1 game's intro on a PSP-E1004: 30 fps on the PC, the game 30 → 29.9 fps.
+
 ## Measured on a PSP-E1004
 
 | Game | Colour | Copy | PC | The game on the PSP |
@@ -73,8 +88,8 @@ homebrew the watcher and sender run at higher priorities while casting (about 20
 | God of War: Ghost of Sparta | 8888 | 9.9 ms | 30 fps | 33 → 30 fps |
 | NFSU2VIEW (homebrew) | 8888 | | ~20 fps | |
 
-A PSP-3000 casts at 30 fps with sound too. Games that use USB themselves (camera, GPS) can't be cast. PS1 (POPS) games aren't supported yet: the plugin
-is only listed for PSP games and homebrew (`game`), not for POPS (`pops`).
+A PSP-3000 casts at 30 fps with sound too. Games that use USB themselves (camera, GPS) can't be cast. PS1 games cast
+their picture, without sound (see PS1 games).
 
 ## Testing it from the PC
 

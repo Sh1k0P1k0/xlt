@@ -21,6 +21,7 @@ int fm_place_count(void);
 const char *fm_place_name(int i);
 const char *fm_place_path(int i);
 int fm_place_icon(int i);
+void fm_place_menu(int i); /* △ on the row: a place's menu, or (i < 0) every place */
 
 int fm_busy(void); /* a copy / move / delete is running */
 

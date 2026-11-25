@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "castplug.h"
+#include "side.h"
 #include "plugins.h"
 #include "plugtext.h"
 #include "ark.h"
@@ -65,7 +66,7 @@ static void job_apply(void *arg)
     /* the lists: its global lines switched. One that is there but can't be read leaves
      * them all alone (it might hold a line, and writing it would lose the rest). */
     char paths[3][160];
-    int n = plugins_file_paths(paths), listed = 0;
+    int n = plugins_file_paths(paths), listed = 0, pops = 0;
     for (int i = 0; i < n; i++) {
         int missing;
         char *t = plugins_read_file(paths[i], &missing);
@@ -82,6 +83,8 @@ static void job_apply(void *arg)
             continue;
         if (plugtext_mentions(t, NAME))
             listed = 1;
+        if (plugtext_loads_for_pops(t, NAME))
+            pops = 1;
         int cap = (int)strlen(t) + 64, changed = 0;
         char *o = malloc(cap);
         int len = o ? plugtext_switch_named(t, NAME, on, o, cap, &changed) : -1;
@@ -93,22 +96,33 @@ static void job_apply(void *arg)
         free(o);
         free(t);
     }
-    if (!on || listed)
+    if (!on || (listed && pops))
         return;
 
-    /* on, and no list has it: a line added */
-    char list[64], line[96];
+    /* on, and no list has it: lines added for games and homebrew, and for PS1 games
+     * (casting them came later: a list with only the game line gets the pops one) */
+    char list[64], game[96], ps1[96];
     snprintf(list, sizeof(list), "%s/PLUGINS.TXT", dir);
-    snprintf(line, sizeof(line), "game, %s, on", prx);
+    snprintf(game, sizeof(game), "game, %s, on", prx);
+    snprintf(ps1, sizeof(ps1), "pops, %s, on", prx);
     int missing;
     char *t = plugins_read_file(list, &missing);
     if (!t && !missing)
         return;
     const char *old = t ? t : "";
-    int cap = (int)strlen(old) + (int)strlen(line) + 8;
-    char *o = malloc(cap);
-    int len = o ? plugtext_append(old, line, o, cap) : -1;
+    int cap = (int)strlen(old) + (int)strlen(game) + (int)strlen(ps1) + 16;
+    char *o1 = malloc(cap), *o = malloc(cap);
+    int len = o1 && o ? 0 : -1;
+    if (len >= 0 && !listed) {
+        len = plugtext_append(old, game, o1, cap);
+        old = o1;
+    }
+    if (len >= 0 && !pops)
+        len = plugtext_append(old, ps1, o, cap);
+    else if (len >= 0)
+        len = (int)strlen(strcpy(o, old));
     int ok = len >= 0 && plugins_write_text(list, o, len) == 0;
+    free(o1);
     free(o);
     free(t);
     snprintf(note, sizeof(note), "XLT Cast: %s %s", ok ? "added to" : "COULDN'T add to", list);
@@ -117,5 +131,6 @@ static void job_apply(void *arg)
 
 void castplug_apply(int on)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: the plugins are the real XLT's (side.h) */
     bg_post(job_apply, &on, sizeof(on));
 }

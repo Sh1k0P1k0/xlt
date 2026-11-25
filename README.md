@@ -18,6 +18,34 @@ https://github.com/user-attachments/assets/92f598a2-c2e0-46f5-ba6e-19b2c53865c7
 > Everything in the screenshots and videos is made up, rendered on a PC from XLT's own drawing code:
 > the games, songs, artists and artwork are invented, so none of it belongs to anyone.
 
+## New in 1.4.0
+
+- **nMB: a second look for XLT.** **Settings → XLT → Interface** now has two layouts. **Classic** is XLT as you
+  know it. **nMB** puts everything on one cross bar, like a modern take on the PSP's own menu: the categories run
+  across the top and their items down a column, with a **Continue** card (the game played last, the song playing,
+  the video you stopped part way), a details card for the focused item, and Settings as a column. Your library,
+  theme and buttons stay the same in both.
+- **Internet over the USB cable.** With [XLT Tool](https://github.com/boubounokefalos/xlt-tool) 1.3.0, the PSP
+  can use your PC's internet through the cable, with [USBNet](https://github.com/chriopter/pspkit-usbnet) by
+  chriopter: turn on **Settings → Network → Internet over USB**, press **Internet** in XLT Tool, and connect to
+  **Hi-Speed USB**. XLT Tool brings USBNet and XLT installs it (a USBNet you already have is left as it is). USB
+  sync and the internet share the cable.
+- **Update over USB.** XLT Tool can send a new XLT over USB sync (**⋮ → Update XLT on the PSP**); XLT offers it
+  in **Settings → About**, no Wi-Fi needed. The running XLT is kept as `EBOOT-<version>.PBP`.
+- **Edit text files.** △ → **Edit** in the Reader: ↑/↓ pick a line, ✕ edits it on the keyboard, □ adds a line
+  below, START saves. The menu has undo, a new line above, join and delete. UTF-8 files up to 256 KB, saved with
+  their own line breaks; a file that couldn't come back exactly as it was says why instead. Files can also make a
+  new text file.
+- **Longer battery life.** The CPU drops to 111 MHz when nothing is moving (music included, when it can), and
+  Wi-Fi turns off after two minutes unused. Videos still get full speed.
+- **Crash log.** When a game, an app, a plugin or XLT itself crashes, `SEPLUGINS/xltcrash.log` says what went
+  wrong, to attach to a bug report. Nothing is written otherwise. On by default; **Settings → XLT → Crash log**
+  turns it off.
+- **XLT Cast: PS1 games**, the picture for now (no sound yet).
+- **Smaller things:** △ menus on the Files, Web and Settings cards of the home row; holding a key repeats it in
+  the keyboard and search; the d-pad shows as ◀▶ ▲▼ in the button hints; a file name the PSP refuses is made in
+  plain letters instead; Greek final ς is kept as σ in names.
+
 ## New in 1.3.1
 
 - **Fixed: a rare bug that could wipe videos and other files from the Memory Stick.** It could happen when the
@@ -96,9 +124,10 @@ no warranty.
   tracks, resume where you stopped, and the next episode in the folder.
 - **Pictures.** JPEG, PNG, BMP and GIF, with zoom.
 - **Files.** Copy, move, rename, delete and new folders, unpacking ZIP files (homebrew goes straight to
-  `PSP/GAME`), save data backup and restore, and a reader for text and PDF files (Greek included).
-- **Web.** A simple browser for text, links, forms and pictures over secure connections. It doesn't run
-  JavaScript, and it needs a PSP-2000 or later.
+  `PSP/GAME`), save data backup and restore, a reader for text and PDF files (Greek included), and a text
+  editor.
+- **Web.** A simple browser for text, links, forms and pictures over secure connections, over Wi-Fi or the USB
+  cable. It doesn't run JavaScript, and it needs a PSP-2000 or later.
 - **Control center** (SELECT, anywhere). Wi-Fi status, USB mode, screenshot, sleep and power, the song playing,
   volume and brightness.
 - **Screenshots, in games too.** L+R+START saves a screenshot as a PNG in `PICTURE/`, in XLT and in your games:
@@ -112,9 +141,10 @@ no warranty.
   A file is only put in place once it has arrived whole and checked, so a pulled cable leaves nothing
   half-written. USB mode is still there for a file manager.
 - **XLT Cast.** With **Settings → XLT → XLT Cast** on, L+R+SELECT in a game shows it live in XLT Tool on your PC,
-  with its sound, over the USB cable (PSP games and homebrew; PS1 games not yet).
+  with its sound, over the USB cable (PSP games and homebrew; PS1 games show the picture, no sound yet).
 - **Play time.** The screenshot plugin also counts how long each game runs (not while the PSP sleeps), PS1
   games included; XLT adds it to the game's details and to the **Most played** sort.
+- **Two layouts.** Classic, or nMB, a cross bar like the PSP's own menu (**Settings → XLT → Interface**).
 - **Settings.** XLT's own options, ARK's settings and plugins, and the PSP's system settings in one place.
   There are eight colour themes, which change at once, and interface sounds. About shows your model, firmware
   and Memory Stick space, and checks for updates. A button test shows whether every button and the stick work.
@@ -146,7 +176,8 @@ You need a PSP with **ARK-4 or ARK-5** installed.
 1. Copy the `XLT` folder to `PSP/GAME/` on the Memory Stick, so you have `PSP/GAME/XLT/EBOOT.PBP`.
 2. Start **XLT** from the XMB's Game menu. The first start looks through the Memory Stick for your games, music,
    videos and pictures, which takes a few seconds; later starts are quicker.
-3. Updating from an older XLT: **Settings → About → Check for updates**, or copy the new `XLT` folder over the
+3. Updating from an older XLT: **Settings → About → Check for updates**, XLT Tool's **Update XLT on the PSP**
+   (from 1.4.0 on), or copy the new `XLT` folder over the
    old one. Your settings and library stay.
 4. To have your PSP start straight into XLT, turn on **Settings → XLT → Start XLT at boot**. XLT sets itself
    up as ARK's launcher and keeps ARK's own menu as `PSP/SAVEDATA/ARK_01234/VBOOT_ARKMENU.PBP`. Turning the
@@ -172,7 +203,7 @@ XLT can connect to a PC over the same cable in two ways.
 | What the PC can change | Only XLT's folders and save data, never system files or plugins | The whole Memory Stick |
 | Games and saves | XLT Tool shows what's on the PSP, sends and removes games, backs up and restores saves, shows the battery | Copy files by hand |
 | Speed (64 MB) | 8.3 MB/s | 9.6 MB/s |
-| On the PC | XLT Tool (Linux for now; allow access once) | Any file manager, no software |
+| On the PC | XLT Tool (Linux: allow access once; Windows: nothing to set up) | Any file manager, no software |
 
 USB sync suits everyday use: sending a few videos or songs, or adding a game, without leaving XLT. USB mode is
 still in the control center for anything else, such as copying a whole folder tree or reaching files outside
@@ -200,7 +231,8 @@ L+R+START, which takes screenshots in games too.
 | Now Playing | ✕ / ← → / L R / △ / □ / START | Pause / previous, next / seek / shuffle / repeat / equalizer |
 | Video | ✕ / ← → / L R / △ / □ | Pause / 10 s back, ahead / 1 min / audio track / subtitles |
 | Files | ✕ / ○ / △ / □ | Open / up / menu / mark |
-| Reader | ✕ / L R / □ / △ | Next screen / page / find / menu |
+| Reader | ✕ / L R / □ / △ | Next screen / page / find / menu (△ → Edit for text files) |
+| Text editor | ↑ ↓ / ✕ / □ / START / ○ | Line / edit it / new line below / save / leave (asks first) |
 | Web | ✕ / L R / □ / △ | Open / back, forward / address / menu |
 | Screensaver | Any button | Wake |
 
@@ -252,6 +284,9 @@ Special thanks to [08Weber](https://github.com/08Weber) for [psp5](https://githu
 - ARK's own preview video: the PMF layout.
 - PSPLINK's `usbhostfs` (BSD licence): the structure of the USB bus driver for USB sync (`plugin/xltsync`).
 - PPSSPP's `Core/Font/PGF.cpp` (GPL-2.0 or later): the PGF font format, for kanji (`src/pgf.c`).
+
+**Works with, not included:** [USBNet](https://github.com/chriopter/pspkit-usbnet) by chriopter (MIT), the PSP's
+internet over the USB cable: XLT Tool downloads it and XLT installs it.
 
 **Read from your PSP at run time, not included:** kanji come from the firmware's own Japanese font
 (`flash0:/font/jpn0.pgf`).

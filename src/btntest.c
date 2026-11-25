@@ -238,9 +238,9 @@ void btntest_draw(const SysStatus *st)
     for (int i = 0; i < k; i++) state_pill(&px2, y2, names[i], vals[i], ons[i]);
 
     /* footer: how to leave, and how far ○ has got */
-    gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, 248, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     static const Hint leave[] = {{ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Hold to leave"}};
-    ui_draw_hints(leave, 1, SCREEN_W / 2, 253);
+    ui_draw_screen_footer(leave, 1, 253, 0); /* (every button is being tested: no quick menu) */
     if (B.leave > 0) {
         int w = 120 * B.leave / LEAVE_FRAMES;
         gfx_rrect(SCREEN_W / 2 - 60, 268, 120, 3, 1, C_RAISED);

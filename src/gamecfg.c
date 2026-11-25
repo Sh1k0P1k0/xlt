@@ -17,7 +17,7 @@
 #define FAV_MAX 64
 #define HIDDEN_MAX 256
 
-GlobalCfg g_cfg = {-1, DRIVER_DEFAULT, {1, 2, 3}, 2, 0, 1, 0, 0, {0, 0}, 1, "", 1, "", 1, 0, 0, {0}, 0, "", 0}; /* Games, Plugins, Power; screensaver after 2 min; songs by artist; games by name; next video on; crossfade off */
+GlobalCfg g_cfg = {-1, DRIVER_DEFAULT, {1, 2, 3}, 2, 0, 1, 0, 0, {0, 0}, 1, "", 1, "", 1, 0, 0, {0}, 0, "", 0, 0, UI_XLT, 1}; /* Games, Plugins, Power; screensaver after 2 min; songs by artist; games by name; next video on; crossfade off; crash log on */
 
 static char s_dir[200];
 static const char *const LEVEL_KEYS[3] = {"off", "song", "album"}; /* LEVEL_* in audiofmt.h */
@@ -187,20 +187,21 @@ int hidden_set(const char *path, int on) { return set_put(&s_hidden, path, on); 
 
 void globalcfg_save(void)
 {
-    char path[260], text[768];
+    char path[260], text[1024];
     snprintf(path, sizeof(path), "%s/xlt.ini", s_dir);
     int n = snprintf(text, sizeof(text),
                      "brightness_pct=%d\niso_driver=%s\nsettings_recent=%d,%d,%d\nsaver_minutes=%d\ngrid_views=%d\n"
                      "ui_sounds=%d\ntheme=%s\nmusic_sort=%s\ngames_sort=%s\nhomebrew_sort=%s\nautoplay_next=%d\naudio_lang=%s\n"
                      "subtitle_lang=%s\nvolume_level=%s\nbattery_percent=%d\nusb_sync=%d\nequalizer=%s\n"
-                     "equalizer_custom=%d,%d,%d,%d,%d\ncrossfade=%d\nhome_order=%s\nxlt_cast=%d\n",
+                     "equalizer_custom=%d,%d,%d,%d,%d\ncrossfade=%d\nhome_order=%s\nxlt_cast=%d\ninterface=%s\nxlt_net=%d\ncrash_log=%d\n",
                      g_cfg.brightness, driver_name(g_cfg.iso_driver), g_cfg.set_recent[0], g_cfg.set_recent[1],
                      g_cfg.set_recent[2], g_cfg.saver_min, g_cfg.grid, g_cfg.ui_sounds,
                      g_themes[g_cfg.theme >= 0 && g_cfg.theme < THEME_COUNT ? g_cfg.theme : 0].name,
                      msort_key(g_cfg.music_sort), gsort_key(g_cfg.game_sort[0]), gsort_key(g_cfg.game_sort[1]), g_cfg.autoplay, g_cfg.audio_lang,
                      g_cfg.sub_lang, LEVEL_KEYS[g_cfg.level >= 0 && g_cfg.level < 3 ? g_cfg.level : 1], g_cfg.battery_pct,
                      g_cfg.usb_sync, eq_preset_key(g_cfg.eq_preset), g_cfg.eq_custom[0], g_cfg.eq_custom[1],
-                     g_cfg.eq_custom[2], g_cfg.eq_custom[3], g_cfg.eq_custom[4], g_cfg.crossfade, g_cfg.home_order, g_cfg.cast);
+                     g_cfg.eq_custom[2], g_cfg.eq_custom[3], g_cfg.eq_custom[4], g_cfg.crossfade, g_cfg.home_order, g_cfg.cast,
+                     UI_MODE_NAMES[g_cfg.ui_mode == UI_NUMB ? UI_NUMB : UI_XLT], g_cfg.usb_net, g_cfg.crash_log);
     if (n >= (int)sizeof(text)) n = (int)sizeof(text) - 1; /* (never: but a cut file beats a write past the end) */
     write_file(path, text, n);
 }
@@ -256,7 +257,7 @@ void gamecfg_init(const char *app_dir)
     set_load(&s_hidden);
     groups_load();
 
-    char text[768], v[32];
+    char text[1024], v[32];
     snprintf(path, sizeof(path), "%s/xlt.ini", s_dir);
     int got = read_file(path, text, sizeof(text));
     if (got <= 0) { /* before the rename to XLT the file was xlite.ini: read it once, xlt.ini is written next */
@@ -292,6 +293,12 @@ void gamecfg_init(const char *app_dir)
             g_cfg.usb_sync = atoi(v) != 0;
         if (ini_get(text, "xlt_cast", v, sizeof(v)))
             g_cfg.cast = atoi(v) != 0;
+        if (ini_get(text, "xlt_net", v, sizeof(v)))
+            g_cfg.usb_net = atoi(v) != 0;
+        if (ini_get(text, "crash_log", v, sizeof(v)))
+            g_cfg.crash_log = atoi(v) != 0;
+        if (ini_get(text, "interface", v, sizeof(v)))
+            g_cfg.ui_mode = !strcasecmp(v, UI_MODE_NAMES[UI_NUMB]) || !strcasecmp(v, "nuMB") ? UI_NUMB : UI_XLT; /* (the old name too) */
         if (ini_get(text, "audio_lang", v, sizeof(v)) && strlen(v) == 3)
             snprintf(g_cfg.audio_lang, sizeof(g_cfg.audio_lang), "%s", v);
         if (ini_get(text, "volume_level", v, sizeof(v)))

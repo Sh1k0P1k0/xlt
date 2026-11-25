@@ -12,6 +12,7 @@
 #include "ark.h"
 #include "library.h"
 #include "ui.h"
+#include "side.h"
 #include "xltsync.h"      /* plugin/xltsync: the protocol's names */
 #include "xltsync_data.h" /* the module, built by plugin/xltsync/Makefile */
 
@@ -19,7 +20,7 @@
 #define SETTLE_US 1500000        /* changes, then this long without more: rescan */
 #define NUDGE_US 3000000         /* the cable in this long and the PC hasn't set it up: nudge */
 
-static char s_dir[256] = "ms0:/PSP/GAME/XLT/";
+static char s_dir[256] = XLT_HOME_DIR;
 static int s_on;
 static SceUID s_mod = -1;
 static void *s_status_fn;
@@ -31,6 +32,19 @@ static int s_pending;            /* changes not in the library yet */
 static SceInt64 s_last_change, s_cable_since;
 static int s_nudged, s_hinted;
 static volatile int s_resumed;
+static int s_want;               /* sync is meant to be on (usbsync_start), maybe waiting */
+static volatile int s_hold;      /* usbsync_hold(1): off while USBNet has the cable */
+static int s_wait_frames;
+
+/* USBNet (chriopter's plugin, src/netplug.c) has its USB driver started: the bus is in use for
+ * the PSP's internet. sceUsbGetDrvState: 1 is "started". */
+static int usbnet_on_bus(void) { return sceUsbGetDrvState("UsbnetDriver") == 1; }
+
+int usbnet_loaded(void)
+{
+    int v = 0;
+    return sceIoDevctl("usbnet:", 1, NULL, 0, &v, sizeof(v)) >= 0; /* its VERSION request */
+}
 
 /* a line in XLT's log (cache/scan.log), with the same ms clock as xltsync.log */
 static void note(const char *fmt, ...)
@@ -90,7 +104,7 @@ static int read_status(void)
     return 0;
 }
 
-int usbsync_start(void)
+static int start_now(void)
 {
     s_err[0] = 0;
     if (s_on)
@@ -157,13 +171,14 @@ int usbsync_start(void)
     return 0;
 }
 
-void usbsync_stop(void)
+static void stop_now(void)
 {
     if (!s_on)
         return;
     sceUsbDeactivate(XLTSYNC_PID);
     sceUsbStop(XLTSYNC_DRIVER, 0, 0);
-    sceUsbStop(PSP_USBBUS_DRIVERNAME, 0, 0);
+    if (!usbnet_on_bus()) /* never the bus from under USBNet's driver: that froze the PSP */
+        sceUsbStop(PSP_USBBUS_DRIVERNAME, 0, 0);
     s_on = 0;
     memset(&s_st, 0, sizeof(s_st));
     /* the module stays loaded: starting again only restarts the driver */
@@ -172,6 +187,30 @@ void usbsync_stop(void)
         s_pending = 0;
     }
 }
+
+int usbsync_start(void)
+{
+    s_want = 1;
+    if (s_hold || usbnet_on_bus()) { /* USBNet has the cable: sync comes on once it's done */
+        note("waiting: USBNet has the cable");
+        s_err[0] = 0;
+        return 0;
+    }
+    return start_now();
+}
+
+void usbsync_stop(void)
+{
+    s_want = 0;
+    stop_now();
+}
+
+void usbsync_hold(int on)
+{
+    s_hold = on;
+}
+
+int usbsync_held(void) { return s_want && !s_on && (s_hold || usbnet_on_bus()); }
 
 int usbsync_progress(char *out, int n)
 {
@@ -186,8 +225,24 @@ int usbsync_poll(void)
     if (s_resumed) { /* sleep reset the USB port: start over */
         s_resumed = 0;
         if (s_on) {
-            usbsync_stop();
-            usbsync_start();
+            stop_now();
+            start_now();
+        }
+    }
+    /* sharing the cable with USBNet: off while it's held, on again once USBNet is done with it */
+    if (s_hold && s_on) {
+        note("off while USBNet has the cable");
+        stop_now();
+        return 1;
+    }
+    if (s_want && !s_on && ++s_wait_frames >= 30) {
+        s_wait_frames = 0;
+        if (!s_hold && !usbnet_on_bus()) {
+            note("back on: USBNet is done with the cable");
+            if (start_now() == 0)
+                return 1;
+            note("couldn't come back on: %s", s_err);
+            s_want = 0; /* not tried again: the toggle in Settings is */
         }
     }
     if (!s_on || ++s_frames < POLL_FRAMES)

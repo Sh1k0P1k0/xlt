@@ -18,6 +18,10 @@ int usbsync_start(void) { return -1; }
 void usbsync_stop(void) {}
 static int s_cast_calls, s_cast_last = -1;
 void castplug_apply(int on) { s_cast_calls++; s_cast_last = on; }
+static int s_net_calls, s_net_last = -1;
+void netplug_apply(int on) { s_net_calls++; s_net_last = on; }
+static int s_crash_calls, s_crash_last = -1;
+void crashplug_apply(int on) { s_crash_calls++; s_crash_last = on; }
 const char *usbsync_error(void) { return ""; }
 int usbsync_attached(void) { return 0; }
 int usbsync_talking(void) { return 0; }
@@ -46,7 +50,16 @@ void ui_toast(const char *m) { printf("toast: %s\n", m); }
 void ui_library_changed(void) {}
 void ui_open_removed(void) {}
 void ui_arrange_home(void) {}
-void ui_draw_status_bar(const char *t, const SysStatus *st) { (void)st; gfx_text(FONT_SMALL, 12, 5, t, C_MUTED); }
+void ui_draw_status_bar(const char *t, const SysStatus *st) { (void)st; gfx_text(FONT_SMALL, 12, 5, t ? t : "Sun 22 Nov", C_MUTED); }
+/* nuMB (N4): the bar as a stand-in (the real one is in ui.c): Settings in the focus box */
+void ui_numb_draw_bar(void)
+{
+    gfx_rrect(NUMB_FOCUS_X - NUMB_BOX / 2, NUMB_BAR_CY - NUMB_BOX / 2, NUMB_BOX, NUMB_BOX, NUMB_BOX * 24 / 100, C_SURFACE);
+    gfx_icon(ICON_SETTINGS, NUMB_FOCUS_X - 14, NUMB_BAR_CY - 14, 28, 28, C_TEXT);
+    gfx_ring(NUMB_FOCUS_X - NUMB_BOX / 2 - 2, NUMB_BAR_CY - NUMB_BOX / 2 - 2, NUMB_BOX + 4, NUMB_BOX + 4, C_FOCUS);
+    gfx_icon(ICON_WIFI, NUMB_FOCUS_X - NUMB_PITCH - 13, NUMB_BAR_CY - 13, 26, 26, C_MUTED);
+}
+void ui_draw_footer_hints(const Hint *h, int n) { ui_draw_hints(h, n, SCREEN_W / 2, 253); }
 void format_size(char *b, int n, uint64_t bytes)
 {
     unsigned tenths = (unsigned)(bytes * 10 / (1024ull * 1024 * 1024));
@@ -125,6 +138,7 @@ const char *update_activity(void)
 void update_progress(int64_t *g, int64_t *t, int *k) { *g = s_ugot; *t = s_urel.zip_size; *k = 143; }
 const char *update_backup(void) { return "EBOOT-1.1.0.PBP"; }
 int update_known(void) { return s_uknown; }
+int update_from_usb(void) { return 0; }
 static int s_urestart;
 void update_request_restart(void) { s_urestart = 1; }
 int update_take_restart(void) { return 0; }
@@ -399,6 +413,78 @@ int main(int argc, char **argv)
             settings_input(PSP_CTRL_LEFT);
             CHECK(g_cfg.cast == 0 && s_cast_calls == 2 && s_cast_last == 0, "off again: %d, last %d", g_cfg.cast, s_cast_last);
         }
+        /* XLT > Crash log: on by default; off and on again through crashplug_apply */
+        int crow = -1;
+        for (int i = 0; i < x->n; i++)
+            if (x->items[i].src == SRC_XLT && x->items[i].key == X_CRASH) crow = i;
+        CHECK(crow >= 0, "no Crash log row in XLT");
+        if (crow >= 0) {
+            S.sel[C_XLT] = crow;
+            if (S.top[C_XLT] > crow) S.top[C_XLT] = crow;
+            if (crow >= S.top[C_XLT] + VISIBLE) S.top[C_XLT] = crow - VISIBLE + 1;
+            char v[32];
+            item_value(&x->items[crow], v, sizeof(v));
+            g_cfg.crash_log = 1; /* (the default lives in gamecfg.c, which this test does without) */
+            item_value(&x->items[crow], v, sizeof(v));
+            CHECK(!strcmp(v, "On"), "crash log on reads \"%s\"", v);
+            frames(20);
+            shot("crash_0_on");
+            settings_input(PSP_CTRL_LEFT);
+            CHECK(g_cfg.crash_log == 0 && s_crash_calls == 1 && s_crash_last == 0, "off: %d, %d calls, last %d",
+                  g_cfg.crash_log, s_crash_calls, s_crash_last);
+            settings_input(PSP_CTRL_RIGHT);
+            CHECK(g_cfg.crash_log == 1 && s_crash_calls == 2 && s_crash_last == 1, "on again: %d, last %d",
+                  g_cfg.crash_log, s_crash_last);
+        }
+        /* Network > Internet over USB: the same, through netplug_apply */
+        x = &s_cats[C_NETWORK];
+        S.cat = C_NETWORK;
+        int nrow = -1;
+        for (int i = 0; i < x->n; i++)
+            if (x->items[i].src == SRC_XLT && x->items[i].key == X_NET) nrow = i;
+        CHECK(nrow >= 0, "no Internet over USB row in Network");
+        if (nrow >= 0) {
+            S.sel[C_NETWORK] = nrow;
+            S.top[C_NETWORK] = 0;
+            g_cfg.usb_net = 0;
+            char v[32];
+            item_value(&x->items[nrow], v, sizeof(v));
+            CHECK(!strcmp(v, "Off"), "net off reads \"%s\"", v);
+            settings_input(PSP_CTRL_RIGHT);
+            item_value(&x->items[nrow], v, sizeof(v));
+            CHECK(g_cfg.usb_net == 1 && !strcmp(v, "On") && s_net_calls == 1 && s_net_last == 1,
+                  "net on: %d (\"%s\"), %d calls, last %d", g_cfg.usb_net, v, s_net_calls, s_net_last);
+            frames(20);
+            shot("net_0_on");
+            settings_input(PSP_CTRL_LEFT);
+            CHECK(g_cfg.usb_net == 0 && s_net_calls == 2 && s_net_last == 0, "net off again: %d, last %d",
+                  g_cfg.usb_net, s_net_last);
+        }
+    }
+
+    { /* nuMB (docs/numb.md, N4): a section as a column under the bar; ○ goes straight back to the bar */
+        if (S.open && S.col == 1) settings_input(PSP_CTRL_CIRCLE);
+        if (S.open) settings_input(PSP_CTRL_CIRCLE);
+        frames(40);
+        g_cfg.ui_mode = UI_NUMB;
+        settings_open_section(C_XLT);
+        frames(40);
+        CHECK(S.col == 1, "nuMB: a section should open on its settings (col %d)", S.col);
+        shot("numb_set_0_xlt");
+        settings_input(PSP_CTRL_DOWN);
+        settings_input(PSP_CTRL_DOWN);
+        frames(20);
+        shot("numb_set_1_down");
+        for (int i = 0; i < 6; i++) settings_input(PSP_CTRL_DOWN); /* scrolled */
+        frames(20);
+        shot("numb_set_2_scrolled");
+        settings_input(PSP_CTRL_RTRIGGER);
+        frames(20);
+        shot("numb_set_3_next_section");
+        settings_input(PSP_CTRL_CIRCLE);
+        CHECK(!S.open, "nuMB: ○ in a section should go back to the bar");
+        frames(40);
+        g_cfg.ui_mode = UI_XLT;
     }
 
     puts(fails ? "settings_preview: FAILED" : "settings_preview: ok");

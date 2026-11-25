@@ -53,7 +53,15 @@ typedef struct {
     int crossfade;      /* music: seconds the next song fades in over the last one (XFADE_STEPS), 0 = gapless only */
     char home_order[72]; /* the home menu's cards, keys joined by commas (homeorder.h, ui.c); "" = the default order */
     int cast;           /* XLT Cast on: the plugin that shows games on the PC is installed and on (castplug.c) */
+    int usb_net;        /* Internet over USB on: USBNet's plugin installed and on (netplug.c) */
+    int ui_mode;        /* UI_XLT or UI_NUMB: Settings > XLT > Interface (nuMB, docs/numb.md) */
+    int crash_log;      /* the crash log plugin installed and on (crashplug.c) */
 } GlobalCfg;
+
+/* The interface: XLT's own look, or nuMB's cross bar (docs/numb.md). */
+enum { UI_XLT, UI_NUMB, UI_COUNT };
+/* the names Settings shows and xlt.ini keeps (the user's, 2026-11-22; before that "XLT" / "nuMB") */
+static const char *const UI_MODE_NAMES[UI_COUNT] = {"Classic", "nMB"};
 
 /* Settings > Sound > Crossfade: the lengths offered, in seconds. */
 #define XFADE_COUNT 6

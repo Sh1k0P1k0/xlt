@@ -95,6 +95,9 @@ build/test_url
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o build/web_dump tests/web_dump.c src/html.c src/weblay.c
 printf '<html><title>T</title><h1>Hi</h1><p>A <a href="/x">link</a> &amp; <b>bold</b><ul><li>one<li>two</ul><form action=/s><input name=q><input type=submit></form><table><tr><th>K<td>V</table>' > build/web_t.html
 build/web_dump build/web_t.html > /dev/null && echo "web_dump: ok"
+# The Reader's editor: which files can be edited, and saving gives the same bytes back.
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_textedit tests/test_textedit.c src/textedit.c src/textenc.c
+build/test_textedit
 # Music: playlists (.m3u / .m3u8 reading and writing) and the list's sort orders.
 cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -Isrc -o build/test_m3u tests/test_m3u.c src/m3u.c src/musicsort.c src/textenc.c
 build/test_m3u

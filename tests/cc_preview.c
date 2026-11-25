@@ -35,6 +35,8 @@ int brightness_from_hw(int l) { return l; }
 int brightness_to_hw(int p) { return p; }
 int fm_busy(void) { return 0; }
 void format_clock(char *b, int n, int h, int m) { snprintf(b, n, "%02d:%02d", h, m); }
+void format_date_short(char *b, int n, const SysStatus *st) { (void)st; snprintf(b, n, "Sun 22 Nov"); }
+void format_life(char *b, int n, int m) { if (m >= 60) snprintf(b, n, "%d h %d m", m / 60, m % 60); else snprintf(b, n, "%d m", m); }
 void globalcfg_save(void) {}
 static Entry s_demo_song; /* demo mode: the song playing has a library entry, so its cover is drawn */
 static int s_demo_lib;
@@ -116,6 +118,7 @@ void ui_draw_hints(const Hint *hints, int n, int cx, int y)
         x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + 16;
     }
 }
+#include "screen_footer.h" /* ui_draw_screen_footer, as ui.c draws it (nuMB N5) */
 
 #include "../src/cc.c" /* in this file: the USB screen's state is set by hand below */
 #include "../src/osd.c" /* the volume pill */
@@ -280,6 +283,17 @@ int main(int argc, char **argv)
     for (int i = 0; i < 30; i++) osd_step();
     s_kbtn = 0;
     if (!s_toast || O.t.x) { puts("cc_preview: volume up at AVLS: no note, or the pill showed"); return 1; }
+
+    /* nuMB (docs/numb.md, N1): the control center as its floating quick menu */
+    if (cc_is_open()) { cc_toggle(); frames(60); }
+    g_cfg.ui_mode = UI_NUMB;
+    s_st.life_min = 190;
+    cc_toggle();
+    frames(60);
+    shot("cc_11_numb_quick_menu");
+    cc_toggle();
+    frames(60);
+    g_cfg.ui_mode = UI_XLT;
     puts("cc_preview: ok");
     return 0;
 }

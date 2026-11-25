@@ -1,8 +1,6 @@
 /* XLT - pad input with d-pad auto-repeat. The analog stick acts as a d-pad. */
 #include "input.h"
 
-#define REPEAT_DELAY 18 /* frames before repeating */
-#define REPEAT_RATE 4   /* frames between repeats */
 #define DPAD (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT)
 
 static unsigned int s_prev;
@@ -31,7 +29,7 @@ void input_poll(Input *in)
     unsigned int dir = now & DPAD;
     if (dir && dir == (s_prev & DPAD)) {
         s_hold_frames++;
-        if (s_hold_frames >= REPEAT_DELAY && (s_hold_frames - REPEAT_DELAY) % REPEAT_RATE == 0)
+        if (input_repeats(s_hold_frames))
             in->pressed |= dir;
     } else {
         s_hold_frames = 0;

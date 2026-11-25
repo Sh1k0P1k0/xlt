@@ -587,7 +587,7 @@ void np_draw(const SysStatus *st)
         }
     } else if (on && r == REPEAT_ONE) {
         int lx = gfx_text(FONT_SMALL, COVER_X, ny, "On repeat", C_FOCUS) + 8;
-        gfx_text_fit(FONT_SMALL, lx, ny, SCREEN_W - 24 - lx, "This song plays again (-> for the next one)", C_TEXT);
+        gfx_text_fit(FONT_SMALL, lx, ny, SCREEN_W - 24 - lx, "This song plays again (" "\xE2\x96\xB6" " for the next one)", C_TEXT);
     } else if (on && music_peek(1, &nt, &na) == 0) {
         int lx = gfx_text(FONT_SMALL, COVER_X, ny, "Up next", C_FOCUS) + 8;
         nt = bare_title(nt, na);
@@ -598,22 +598,22 @@ void np_draw(const SysStatus *st)
     }
 
     eq_draw(oy);
-    gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, 248, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     if (N.eq_open) {
         static const Hint eq_h[] = {
             {-1, "L/R", 0, "Preset"},
-            {-1, "<-/->", 0, "Band"},
-            {-1, "Up/Down", 0, "Level"},
+            {-1, KEY_LR, 0, "Band"},
+            {-1, KEY_UD, 0, "Level"},
             {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Flat"},
             {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Done"},
         };
-        ui_draw_hints(eq_h, COUNT(eq_h), SCREEN_W / 2, NP_HINT_Y);
+        ui_draw_screen_footer(eq_h, COUNT(eq_h), NP_HINT_Y, 1);
         gfx_set_opacity(256);
         return;
     }
     static const Hint play_h[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Pause"},
-        {-1, "<-/->", 0, "Song"},
+        {-1, KEY_LR, 0, "Song"},
         {-1, "L/R", 0, "Seek"},
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Shuffle"},
         {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Repeat"},
@@ -632,6 +632,6 @@ void np_draw(const SysStatus *st)
         h[n++] = play_h[5];
         h[n++] = play_h[6];
     }
-    ui_draw_hints(h, n, SCREEN_W / 2, NP_HINT_Y);
+    ui_draw_screen_footer(h, n, NP_HINT_Y, 1);
     gfx_set_opacity(256);
 }

@@ -43,6 +43,30 @@ screensaver follow it too. Folder yellow, file-type colours, the logo's cards an
 the same in every theme. **Settings → XLT → Theme**: ←/→ changes it at once, so you can look before you
 leave; saved as `theme=<name>` in `xlt.ini`.
 
+## Layouts: Classic and nMB
+
+**Settings → XLT → Interface** switches at once between two layouts (`interface=Classic` or `interface=nMB` in
+`xlt.ini`; Classic is the default). Both draw the same screens from the same state: the library, folders,
+playlists, sorting, search, sync and Cast work the same, the theme stays as it is, and the buttons are the same
+(SELECT opens the quick menu, HOME the quit dialog).
+
+**nMB** puts everything on one cross bar, like a modern take on the PSP's own menu:
+- the categories run across the top and the focused one's items down a column under it: ←/→ change the
+  category, ↑/↓ move, L/R jump a page, ○ backs out of a folder;
+- a **Continue** card at the top of Games, Homebrew, Music and Video: the game played last, the song playing (or
+  the one to carry on with), the video stopped part way;
+- the focused item grows into a card with its picture, play time or artist and where you stopped; animated game
+  icons and video previews play there. The UMD's column is one such card (ICON0, or ICON1 playing, and
+  "UMD · ID · region · FW");
+- Settings as a column: every section is listed, each opens as the next column, with the focused setting's
+  description in its card;
+- elsewhere: a top bar with the date and the battery's time left, hint rows that start from the left with the
+  quick menu at the right, and side sheets and the quick menu as floating cards.
+
+Grid view is a Classic feature: nMB always shows the column, and the grid setting is kept for Classic. Both
+layouts build a frame in well under 1 ms on average on a PSP-E1004, with no frames past a vertical blank (an
+opt-in frame log: with `cache/framelog` present, every 10 s of drawing adds a line to `cache/scan.log`).
+
 ## Interface sounds
 
 Short, quiet sounds, synthesised by `tools/bake_sounds.py` (no samples) into `build/sfx_data.h`; listen to

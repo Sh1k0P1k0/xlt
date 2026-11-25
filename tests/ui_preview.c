@@ -29,6 +29,7 @@ extern int g_rec_preview;
 #include "../src/imgdecode.h"
 #include "../src/ui_internal.h"
 #include "../src/umd.h"
+#include "../src/ui_state.h" /* S: the bar's spring, for the switch check */
 extern int g_umd_preview;
 
 /* ------------------------------------------------------------ the library */
@@ -181,6 +182,8 @@ void favorite_set(const char *path, int on) { (void)path; (void)on; }
 int hidden_get(const char *path) { (void)path; return 0; }
 int hidden_set(const char *path, int on) { (void)path; (void)on; return 0; }
 void history_describe(const char *path, char *out, int n) { (void)path; snprintf(out, n, "Played yesterday"); }
+static int s_played; /* nuMB N3: off, no Continue card; on, every game was played (yesterday) */
+uint64_t history_played(const char *path) { (void)path; return s_played ? 1 : 0; }
 void bg_post(void (*fn)(void *), const void *arg, int size) { (void)size; fn((void *)arg); } /* at once */
 /* demo mode (XLT_DEMO): made-up artwork from tests/make_demo_art.py as the thumbnails */
 #include "../src/thumbconv.h"
@@ -240,6 +243,8 @@ const void *thumbs_get(const Entry *e)
 }
 /* img_format_name: the real one, from imgdecode.c (linked for the demo artwork) */
 void format_clock(char *b, int n, int h, int m) { snprintf(b, n, "%02d:%02d", h, m); }
+void format_date_short(char *b, int n, const SysStatus *st) { (void)st; snprintf(b, n, "Sun 22 Nov"); }
+void format_life(char *b, int n, int m) { if (m >= 60) snprintf(b, n, "%d h %d m", m / 60, m % 60); else snprintf(b, n, "%d m", m); }
 void sfx_play(int id) { (void)id; }
 void sfx_commit(void) {}
 
@@ -461,6 +466,87 @@ int main(int argc, char **argv)
     g_umd_preview = UMD_NONE;                 /* out again: the focus lands on the first card */
     frames(60);
     shot("ui_12b_umd_out");
+
+    /* nuMB (docs/numb.md, N1 + N2): the cross bar, its columns, a sheet over it */
+    g_cfg.ui_mode = UI_NUMB;
+    s_st.day = 22; s_st.month = 11; s_st.wday = 0; s_st.life_min = 190;
+    frames(60);
+    shot("numb_01_bar_games");
+    press(PSP_CTRL_DOWN);
+    press(PSP_CTRL_DOWN);
+    shot("numb_02_games_down");
+    press(PSP_CTRL_TRIANGLE);
+    shot("numb_03_game_sheet");
+    press(PSP_CTRL_CIRCLE);
+    for (int i = 0; i < 4; i++) press(PSP_CTRL_RIGHT); /* Homebrew, Video, Pictures, Music */
+    shot("numb_04_music");
+    press(PSP_CTRL_CROSS);                    /* Artists: the column slides in */
+    tap(0, 3);
+    shot("numb_05a_artists_sliding");
+    frames(45);
+    shot("numb_05_artists");
+    press(PSP_CTRL_CIRCLE);
+    shot("numb_05b_back_on_music");
+    press(PSP_CTRL_RIGHT);                    /* Files */
+    shot("numb_06_files");
+    press(PSP_CTRL_RIGHT);
+    press(PSP_CTRL_RIGHT);                    /* Web, Settings */
+    shot("numb_07_settings");
+    tap(PSP_CTRL_LEFT, 4);
+    shot("numb_08_bar_sliding");
+    frames(45);
+
+    /* N3: the Continue card (a game played) and the focused row's details card */
+    s_played = 1;
+    for (int i = 0; i < 6; i++) press(PSP_CTRL_LEFT); /* Web -> ... -> Games */
+    shot("numb_10_games_continue");
+    press(PSP_CTRL_UP);
+    press(PSP_CTRL_UP);
+    tap(PSP_CTRL_UP, 3);
+    shot("numb_11a_to_continue_moving");
+    frames(45);
+    shot("numb_11_on_continue");
+    press(PSP_CTRL_DOWN);
+    shot("numb_12_first_focused");
+    for (int i = 0; i < 4; i++) press(PSP_CTRL_RIGHT); /* Music: the song playing */
+    shot("numb_13_music_playing");
+    s_played = 0;
+
+    /* N6 sweep: a UMD going in (its category grows into the bar and takes the focus), then out;
+     * Arrange home on the bar */
+    g_umd_preview = UMD_GAME;
+    frames(60);
+    shot("numb_14_umd_in");
+    g_umd_preview = UMD_NONE;
+    frames(60);
+    shot("numb_14b_umd_out");
+    ui_arrange_home();
+    frames(45);
+    press(PSP_CTRL_RIGHT);
+    shot("numb_15_arrange");
+    press(PSP_CTRL_LEFT);                     /* back where it was: nothing to save */
+    press(PSP_CTRL_CROSS);
+    g_cfg.ui_mode = UI_XLT;                   /* and back: XLT's home, on the same card */
+    frames(45);
+    shot("numb_09_back_to_xlt");
+
+    /* The switch made inside Settings (2026-11-22 bug on the PSP: the cross bar showed the first
+     * category until a button was pressed): Classic on the Settings card, the layout switched, and
+     * the next update must ask for a frame with the bar on Settings. */
+    for (int i = 0; i < 9; i++) press(PSP_CTRL_RTRIGGER); /* the last card: Settings */
+    g_cfg.ui_mode = UI_NUMB;
+    s_in.pressed = 0;
+    if (!ui_update(&s_in, 0)) {
+        puts("ui_preview: switching to nMB asked for no frame (the old picture would stay)");
+        return 1;
+    }
+    if (S.bar_x.x != S.bar_x.target) {
+        puts("ui_preview: switching to nMB left the bar sliding instead of on its category");
+        return 1;
+    }
+    shot("numb_16_switched_on_settings");
+    g_cfg.ui_mode = UI_XLT;
+    frames(45);
     puts("ui_preview: ok");
     return 0;
 }

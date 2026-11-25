@@ -602,9 +602,8 @@ void opts_draw(void)
         return;
     if (t > 256) t = 256;
     ui_dim(t);
-    const int w = SHEET_W, x = SCREEN_W - ((w * t) >> 8);
-    gfx_rect(x, 0, w, SCREEN_H, C_SURFACE);
-    gfx_rect(x, 0, 1, SCREEN_H, C_LINE);
+    const int w = SHEET_W, x = ui_sheet_x(w, t);
+    ui_draw_sheet(x, w);
 
     gfx_text_fit(FONT_BOLD, x + PAD, 12, w - 2 * PAD, O.e.title, C_TEXT);
     char sub[48], size[16];

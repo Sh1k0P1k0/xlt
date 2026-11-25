@@ -39,6 +39,7 @@
 #include "osk.h"
 #include "preview.h"
 #include "reader.h"
+#include "savedata.h"
 #include "thumbs.h"
 #include "sysctl.h"
 #include "video.h"
@@ -564,13 +565,13 @@ int fm_is_open(void) { return F.open || F.t.x > 0; }
 int fm_covers(void) { return F.open && F.t.x >= FX(1); }
 int fm_busy(void) { return fop_busy(); }
 
+static void save_recent(void);
+
 static void close_fm(void)
 {
     F.open = 0;
     spring_to(&F.t, 0);
-    static char r[FM_PLACES][FOP_PATH];
-    memcpy(r, F.recent, sizeof(r));
-    bg_post(job_save_recent, r, sizeof(r));
+    save_recent();
 }
 
 /* ---------------------------------------------------------------- places */
@@ -608,6 +609,85 @@ const char *fm_place_name(int i)
 }
 
 int fm_place_icon(int i) { return place_recent(i) < 0 ? ICON_STORAGE : ICON_FOLDER; }
+
+/* The home row's △: a place's own menu, or (i < 0: Save data, Browse) every place. */
+enum { P_OPEN = 1, P_FORGET, P_FORGET_ALL, P_SAVEDATA, P_BROWSE, P_PLACE = 100 };
+static int s_place_menu;
+
+static void save_recent(void)
+{
+    static char r[FM_PLACES][FOP_PATH];
+    memcpy(r, F.recent, sizeof(r));
+    bg_post(job_save_recent, r, sizeof(r));
+}
+
+static void place_menu_cb(int id, int dir)
+{
+    (void)dir;
+    menu_close();
+    if (id >= P_PLACE) { fm_open(fm_place_path(id - P_PLACE)); return; }
+    switch (id) {
+    case P_OPEN: fm_open(fm_place_path(s_place_menu)); return;
+    case P_BROWSE: fm_open(NULL); return;
+    case P_SAVEDATA: sd_open(); return;
+    case P_FORGET: {
+        int r = place_recent(s_place_menu);
+        if (r < 0) return;
+        for (int k = r; k < FM_PLACES - 1; k++)
+            memcpy(F.recent[k], F.recent[k + 1], FOP_PATH);
+        F.recent[FM_PLACES - 1][0] = 0;
+        save_recent();
+        ui_toast("Removed from recent folders");
+        return;
+    }
+    case P_FORGET_ALL:
+        memset(F.recent, 0, sizeof(F.recent));
+        save_recent();
+        ui_toast("Recent folders cleared");
+        return;
+    }
+}
+
+void fm_place_menu(int i)
+{
+    int n = fm_place_count(), dev = 1 + (F.has_ef0 ? 1 : 0);
+    MenuItem it[FM_PLACES + 6];
+    int k = 0;
+    memset(it, 0, sizeof(it));
+    if (i >= 0 && i < n) {
+        s_place_menu = i;
+        snprintf(it[k].label, sizeof(it[k].label), "Open");
+        it[k++].id = P_OPEN;
+        if (place_recent(i) >= 0) {
+            snprintf(it[k].label, sizeof(it[k].label), "Remove from recent folders");
+            it[k++].id = P_FORGET;
+        }
+        if (n > dev) {
+            snprintf(it[k].label, sizeof(it[k].label), "Clear all recent folders");
+            it[k].gap = 1;
+            it[k].danger = 1;
+            it[k++].id = P_FORGET_ALL;
+        }
+        menu_open(fm_place_name(i), fm_place_path(i), it, k, place_menu_cb);
+        return;
+    }
+    snprintf(it[k].label, sizeof(it[k].label), "Browse all files");
+    it[k++].id = P_BROWSE;
+    snprintf(it[k].label, sizeof(it[k].label), "Save data");
+    it[k++].id = P_SAVEDATA;
+    for (int p = 0; p < n && k < FM_PLACES + 4; p++) {
+        snprintf(it[k].label, sizeof(it[k].label), "%s", fm_place_name(p));
+        if (p == 0) it[k].gap = 1;
+        it[k++].id = P_PLACE + p;
+    }
+    if (n > dev) {
+        snprintf(it[k].label, sizeof(it[k].label), "Clear all recent folders");
+        it[k].gap = 1;
+        it[k].danger = 1;
+        it[k++].id = P_FORGET_ALL;
+    }
+    menu_open("Files", NULL, it, k, place_menu_cb);
+}
 
 /* ------------------------------------------------------------- selection */
 
@@ -914,8 +994,37 @@ static void on_mkdir(const char *typed)
     load_dir(F.cwd, text);
 }
 
+/* New text file: an empty NAME.txt (.txt added when the name has no extension), opened for editing. */
+static void on_newtext(const char *typed)
+{
+    char utf[200], text[256], path[512];
+    if (!typed)
+        return;
+    const char *dot = strrchr(typed, '.');
+    snprintf(utf, sizeof(utf), dot && dot != typed ? "%s" : "%s.txt", typed);
+    if (fsname_from_utf8(utf, text, sizeof(text), NULL) < 0)
+        return;
+    if (!join(path, F.cwd, text)) {
+        ui_toast("The name is too long");
+        return;
+    }
+    for (int i = 0; i < F.n; i++)
+        if (!strcasecmp(s_ents[i].name, text)) {
+            ui_toast("Something here already has that name");
+            return;
+        }
+    SceUID fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_EXCL, 0777);
+    if (fd < 0) {
+        ui_toast("Couldn't make the file here");
+        return;
+    }
+    sceIoClose(fd);
+    load_dir(F.cwd, text);
+    reader_open_edit(path);
+}
+
 enum {
-    A_OPEN, A_OPEN_TEXT, A_OPEN_HEX, A_COPY, A_CUT, A_PASTE, A_RENAME, A_NEWDIR, A_DELETE,
+    A_OPEN, A_OPEN_TEXT, A_OPEN_HEX, A_COPY, A_CUT, A_PASTE, A_RENAME, A_NEWDIR, A_NEWTEXT, A_DELETE,
     A_MARK_ALL, A_UNMARK, A_SORT, A_VIEW, A_SIZE, A_CANCEL, A_CLEAR_CLIP, A_ZIP_INSTALL, A_ZIP_FOLDER, A_ZIP_HERE,
 };
 
@@ -982,6 +1091,10 @@ static void menu_cb(int id, int dir)
     case A_NEWDIR:
         menu_close();
         osk_open("New folder", "New folder", OSK_FILENAME, on_mkdir);
+        return;
+    case A_NEWTEXT:
+        menu_close();
+        osk_open("New text file", "Notes", OSK_FILENAME, on_newtext);
         return;
     case A_DELETE:
         n = gather();
@@ -1124,8 +1237,10 @@ static void fill_menu(MenuItem *it, int *count)
     }
     if (in_dir && e && marks <= 1)
         ADD(A_RENAME, "Rename...");
-    if (in_dir)
+    if (in_dir) {
         ADD(A_NEWDIR, "New folder...");
+        ADD(A_NEWTEXT, "New text file...");
+    }
     if (in_dir && (e || marks)) {
         if (F.confirm_delete)
             snprintf(lbl, sizeof(lbl), "Press X again to delete");
@@ -1712,7 +1827,7 @@ void fm_draw(const SysStatus *st)
         fit_tail(title, sizeof(title), F.cwd, FONT_SMALL, 200);
     ui_draw_status_bar(title, st);
 
-    gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     static const Hint hints[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Open"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Up"},
@@ -1725,8 +1840,8 @@ void fm_draw(const SysStatus *st)
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
     if (F.cwd[0])
-        ui_draw_hints(hints, COUNT(hints), SCREEN_W / 2, FOOTER_Y + 5);
+        ui_draw_screen_footer(hints, COUNT(hints), FOOTER_Y + 5, 1);
     else
-        ui_draw_hints(root_hints, COUNT(root_hints), SCREEN_W / 2, FOOTER_Y + 5);
+        ui_draw_screen_footer(root_hints, COUNT(root_hints), FOOTER_Y + 5, 1);
     gfx_set_opacity(256);
 }

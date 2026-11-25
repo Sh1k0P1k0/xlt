@@ -97,6 +97,7 @@ void ui_draw_hints(const Hint *hints, int n, int cx, int y)
         x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + HINT_GAP;
     }
 }
+#include "screen_footer.h" /* ui_draw_screen_footer, as ui.c draws it (nuMB N5) */
 void ui_draw_status_bar(const char *title, const SysStatus *st)
 {
     gfx_text(FONT_SMALL, 12, 5, title, C_MUTED);
@@ -217,6 +218,9 @@ int main(int argc, char **argv)
     np_input(PSP_CTRL_CIRCLE); /* closes the panel (and saves), Now Playing stays */
     if (N.eq_open || !N.open) { puts("np_preview: Circle didn't close only the EQ"); return 1; }
     shot(dir, "np_5e_eq_closed");
+    g_cfg.ui_mode = UI_NUMB; /* nuMB N5: its top bar and hint row */
+    shot(dir, "np_6_numb");
+    g_cfg.ui_mode = UI_XLT;
     s_state = MUSIC_STOPPED; s_gen++;
     shot(dir, "np_3_resume");
     s_resume = 0;

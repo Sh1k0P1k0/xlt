@@ -9,9 +9,12 @@ enum {
     OSK_TEXT,
     OSK_NUMBER,
     OSK_URL,      /* the browser's address bar: / and : on the letter keys */
+    OSK_LINE,     /* a line of a text file (the Reader's editor): kept as typed, spaces and all,
+                   * and it may be empty; up to OSK_LINE_MAX bytes */
 };
 
-#define OSK_MAX 191 /* bytes of UTF-8 */
+#define OSK_MAX 191       /* bytes of UTF-8 */
+#define OSK_LINE_MAX 1023 /* OSK_LINE's */
 
 /* text is NULL if the keyboard was cancelled. */
 typedef void (*OskFn)(const char *text);
@@ -19,6 +22,8 @@ typedef void (*OskFn)(const char *text);
 void osk_open(const char *title, const char *initial, int mode, OskFn fn);
 int osk_is_open(void);
 int osk_input(unsigned int pressed);
+/* Called every frame with the held buttons: repeats a held letter or delete. */
+int osk_hold(unsigned int held);
 int osk_step(void);
 void osk_draw(void);
 

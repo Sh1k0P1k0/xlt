@@ -1,6 +1,8 @@
 # XLT's USB sync link (plugin/xltsync): lets the logged-in user talk to the PSP
-# without root. Install:
+# without root, and USBNet's (the PSP's internet over the cable, 054c:01c9): lets
+# XLT Tool run USBNet's gateway. Install:
 #   sudo install -m 644 tools/60-xltsync.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload
 # then unplug and replug the PSP.
 SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="01cb", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="01c9", TAG+="uaccess"

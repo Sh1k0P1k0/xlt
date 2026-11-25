@@ -26,6 +26,7 @@ int web_tile_count(void);
 const char *web_tile_name(int i);
 const char *web_tile_sub(int i);
 void web_tile_open(int i);
+void web_tile_menu(int i);  /* △ on a tile (i = web_tile_count(): the browser) */
 const char *web_last_title(void); /* "" if no page was opened yet */
 
 /* The globe and the other icons of the second texture (tools/bake_webicons.py):

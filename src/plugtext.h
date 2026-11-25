@@ -50,6 +50,12 @@ int plugtext_set_line(const char *text, int line, const char *runlevel, int on, 
  * (ark_dir, ending in '/'). Returns 0, or -1 for a bare name when ARK's folder is unknown. */
 int plugtext_resolve(const char *path, const char *ark_dir, char *out, int n);
 
+/* One line's state changed in text itself, its length kept: "off" becomes "on " and "on "
+ * becomes "off", the way PSPDX switches its own line (it never rewrites a list). Returns 1
+ * changed, 0 when it says so already, -1 when it can't be done in place (not a plugin line,
+ * or a state word of another length: "on" at the line's end, "1", "true"). */
+int plugtext_switch_in_place(char *text, int line, int on);
+
 /* ---- the in-game screenshot plugin (src/shotplug.c) ---- */
 
 /* 1 if any plugin line in text (any runlevel, on or off) loads a file called

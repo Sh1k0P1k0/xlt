@@ -12,6 +12,13 @@ int usbsync_active(void);           /* started */
 int usbsync_attached(void);         /* the cable is in and the PC set the device up */
 int usbsync_talking(void);          /* a PC program is connected */
 const char *usbsync_error(void);
+/* Sharing the cable with USBNet (the PSP's internet over USB): while held, sync is off and the bus
+ * is USBNet's; released, sync comes back by itself (usbsync_poll) once USBNet's driver is gone.
+ * usbsync_start while USBNet has the cable waits the same way. net.c holds it around a connection
+ * over USBNet. */
+void usbsync_hold(int on);
+int usbsync_held(void);             /* meant to be on, waiting for USBNet to give the cable back */
+int usbnet_loaded(void);            /* USBNet's plugin is running ("usbnet:" answers) */
 
 /* Every frame from the main loop: reads the module's state a few times a
  * second, rescans the library once the PC's changes have settled, nudges a

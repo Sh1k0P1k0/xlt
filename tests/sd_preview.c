@@ -40,6 +40,7 @@ void ui_draw_hints(const Hint *hints, int n, int cx, int y)
         x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + 16;
     }
 }
+#include "screen_footer.h" /* ui_draw_screen_footer, as ui.c draws it (nuMB N5) */
 void ui_draw_status_bar(const char *title, const SysStatus *st)
 {
     gfx_text(FONT_SMALL, 12, 5, title, C_MUTED);
@@ -95,6 +96,9 @@ int main(int argc, char **argv)
     spring_snap(&D.t, FX(1));
     select_row(0, 1);
     shot(argv[1], "sd_1_saves");
+    g_cfg.ui_mode = UI_NUMB; /* nuMB N5: its top bar and hint row */
+    shot(argv[1], "sd_5_numb");
+    g_cfg.ui_mode = UI_XLT;
     select_row(5, 0);
     shot(argv[1], "sd_2_scrolled");
     D.tab = TAB_BACKUPS; select_row(0, 1);

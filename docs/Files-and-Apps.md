@@ -86,6 +86,16 @@ file in `cache/reader.txt` (64 files), and the reader goes back there next time.
   PDFs (even with an empty password) aren't supported, nor text in fonts that have no Unicode map at all.
 - **Hex:** offsets, 16 bytes a row and their characters, for the first 4 MB.
 
+### Editing text
+
+△ → **Edit** in the reader edits a UTF-8 text file up to 256 KB a line at a time (`src/textedit.c` holds the
+parts that don't touch the PSP, tested on the host). ↑/↓ pick the line, ✕ edits it on the keyboard (in its line
+mode: up to 1023 bytes, spaces kept, may be empty), □ adds a line below, START saves, ○ asks before dropping
+changes. The menu has undo (32 steps), a new line above, join and delete. Saving gives the file back its BOM and
+CR LF line breaks, writes `NAME.xltnew` and swaps it in. Files
+that couldn't come back byte for byte (other encodings, UTF-16, control characters, old Mac line breaks) say why
+instead of opening. In Files, the menu's new text file makes one and opens it for editing.
+
 ### Non-ASCII text
 
 The main atlas has ASCII only, so a second atlas (512×512, 4 bits a texel through a 16-step alpha palette, 128 KB

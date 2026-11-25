@@ -522,7 +522,19 @@ int disp_find_folder(int v, const char *name)
 
 /* Views that can be shown as a grid (all but Removed), and whether one is. */
 static int grid_able(int v) { return v >= 0 && v < VIEW_COUNT && v != VIEW_HIDDEN; }
-static int is_grid(int v) { return grid_able(v) && (g_cfg.grid >> v & 1); }
+static int is_grid(int v) { return !NUMB && grid_able(v) && (g_cfg.grid >> v & 1); } /* nuMB: always the column */
+
+/* nuMB's column (docs/numb.md, N2): where it is and how many rows it shows */
+/* (the bar and the column's geometry is in ui_internal.h: Settings draws its column too) */
+#define NUMB_ROWS 5          /* the other categories' columns (one height of row) */
+#define NUMB_FOCUS_EXTRA 16  /* N3: the focused row grows by this into a details card */
+#define NUMB_CONT_H 42       /* N3: the Continue card above the first row, and its gap */
+#define NUMB_CONT_GAP 4
+
+static int numb_has_cont(void);
+/* nuMB: how many rows the list keeps in view (the focused one is taller; the Continue card,
+ * while there is one, takes a row's room at the top). */
+static int list_rows(void) { return !NUMB ? LIST_ROWS : numb_has_cont() ? 3 : 4; }
 
 typedef struct { int cols, w, h, gap, x0; } GridGeom;
 
@@ -572,9 +584,10 @@ void select_entry(int i, int snap)
     if (i < 0) i = 0;
     if (!snap && i != S.sel[v]) sfx_play(SFX_MOVE);
     S.sel[v] = i;
+    const int rows = list_rows();
     if (S.sel[v] < S.top[v]) S.top[v] = S.sel[v];
-    if (S.sel[v] >= S.top[v] + LIST_ROWS) S.top[v] = S.sel[v] - LIST_ROWS + 1;
-    if (S.top[v] > 0 && S.top[v] > n - LIST_ROWS) S.top[v] = n > LIST_ROWS ? n - LIST_ROWS : 0;
+    if (S.sel[v] >= S.top[v] + rows) S.top[v] = S.sel[v] - rows + 1;
+    if (S.top[v] > 0 && S.top[v] > n - rows) S.top[v] = n > rows ? n - rows : 0;
     if (snap) {
         spring_snap(&S.hl, FX(S.sel[v]));
         spring_snap(&S.scroll, FX(S.top[v]));
@@ -584,8 +597,13 @@ void select_entry(int i, int snap)
     }
 }
 
+static int cat_of_view(int v);
+static void numb_focus_cat(int c, int snap);
+
 static void open_list(int view, const Entry *focus)
 {
+    if (NUMB && view != VIEW_HIDDEN && cat_of_view(view) >= 0 && S.cat != cat_of_view(view))
+        numb_focus_cat(cat_of_view(view), 1); /* nuMB: the list is that category's column */
     S.view = view;
     S.screen = SCR_LIST;
     spring_to(&S.trans, FX(1));
@@ -800,6 +818,35 @@ static int arrange_input(unsigned int p)
     return 1;
 }
 
+/* △ on the Settings row: every section, to go straight to one. */
+static void settings_jump_cb(int id, int dir)
+{
+    (void)dir;
+    menu_close();
+    settings_open_section(id);
+    if (!NUMB) focus_tile(0, 1); /* that section is first in the row now */
+}
+
+static void settings_jump_menu(void)
+{
+    MenuItem it[SETTINGS_SECTIONS];
+    memset(it, 0, sizeof(it));
+    for (int i = 0; i < SETTINGS_SECTIONS; i++) {
+        snprintf(it[i].label, sizeof(it[i].label), "%s", settings_section_name(i));
+        it[i].id = i;
+    }
+    menu_open("Settings", "Go to a section", it, SETTINGS_SECTIONS, settings_jump_cb);
+}
+
+/* Whether △ does something on the home screen where the focus is (for the hint). */
+static int home_has_options(void)
+{
+    int v = cat_view();
+    if (v >= 0) return library_count(v) > 0 && S.tile[v] < tile_count(v) - 1;
+    if (S.cat == CAT_UMD) return umd_state() == UMD_GAME;
+    return S.cat == CAT_SETTINGS || S.cat == CAT_FILES || S.cat == CAT_WEB;
+}
+
 static int home_input(unsigned int p)
 {
     if (S.arranging)
@@ -861,7 +908,7 @@ static int home_input(unsigned int p)
             }
             return 1;
         }
-        if (p & PSP_CTRL_TRIANGLE) return 1;
+        if (p & PSP_CTRL_TRIANGLE) { settings_jump_menu(); return 1; }
     } else if (S.cat == CAT_WEB) {
         int t = S.tile[ROW_WEB], n = web_tile_count();
         if (t > n) t = n;
@@ -871,7 +918,7 @@ static int home_input(unsigned int p)
             web_tile_open(t < n ? t : -1);
             return 1;
         }
-        if (p & PSP_CTRL_TRIANGLE) return 1;
+        if (p & PSP_CTRL_TRIANGLE) { web_tile_menu(t); return 1; }
     } else if (S.cat == CAT_FILES) {
         int t = S.tile[ROW_FILES], n = files_places();
         if (t > n + 1) t = n + 1;
@@ -882,7 +929,7 @@ static int home_input(unsigned int p)
             else fm_open(t < n ? fm_place_path(t) : NULL);
             return 1;
         }
-        if (p & PSP_CTRL_TRIANGLE) return 1;
+        if (p & PSP_CTRL_TRIANGLE) { fm_place_menu(t < n ? t : -1); return 1; }
     } else if (p & (PSP_CTRL_CROSS | PSP_CTRL_TRIANGLE)) {
         toast("Nothing here yet");
         return 1;
@@ -976,6 +1023,261 @@ static int list_input(unsigned int p)
     return 0;
 }
 
+/* ------------------------------------------------- nuMB: the cross bar's input */
+
+/* nuMB (docs/numb.md, N2) keeps XLT's state: S.cat is the focused category, and a library
+ * category's column is XLT's list (S.screen SCR_LIST, S.view, S.sel, the folders and
+ * playlists), so everything that acts on the list works unchanged. The other categories'
+ * columns are their home rows (S.tile). Only the buttons are routed differently: ←/→
+ * change the category, ↑/↓ move in the column, L/R page through it. */
+
+/* The category a library view belongs to (-1 for Removed, which opens under Settings). */
+static int cat_of_view(int v)
+{
+    for (int c = 0; c < CAT_COUNT; c++)
+        if (s_cats[c].view == v)
+            return c;
+    return -1;
+}
+
+/* How deep the column is: 0 at a category's top, more inside a folder, playlist,
+ * artist or album (the column slides when it changes). */
+static int numb_depth(void)
+{
+    if (S.screen != SCR_LIST)
+        return 0;
+    int v = S.view;
+    if (v == VIEW_HIDDEN) return 1;
+    if (grouped(v) && S.folder[v][0]) return 1;
+    if (v == VIEW_MUSIC) return in_pl() ? 1 : S.mb_level;
+    return 0;
+}
+
+/* N3: the Continue card above a category's first row (at its top level only): the game or
+ * homebrew played last, the song playing or the one to carry on with, the video stopped
+ * part way. ↑ on the first row gets to it, ↓ leaves it. */
+enum { NC_NONE, NC_GAME, NC_PLAYING, NC_RESUME, NC_VIDEO };
+typedef struct {
+    int kind;
+    const Entry *e;     /* the game or video (NULL for the music) */
+    const char *title;
+    char line[64];      /* the line under the title */
+} NumbCont;
+
+static int numb_cont(NumbCont *c)
+{
+    memset(c, 0, sizeof(*c));
+    if (!NUMB || S.screen != SCR_LIST || numb_depth() != 0)
+        return 0;
+    int v = S.view;
+    if (v == VIEW_GAMES || v == VIEW_HOMEBREW) {
+        if (library_recent_count(v) == 0)
+            return 0;
+        const Entry *e = library_recent(v, 0);
+        if (!history_played(e->path))
+            return 0;
+        c->kind = NC_GAME;
+        c->e = e;
+        c->title = e->title;
+        history_describe(e->path, c->line, sizeof(c->line));
+    } else if (v == VIEW_MUSIC) {
+        MusicNow now;
+        const char *t, *a;
+        if (music_state() != MUSIC_STOPPED && music_now(&now) == 0) {
+            c->kind = NC_PLAYING;
+            c->title = now.title;
+            snprintf(c->line, sizeof(c->line), "%s%s", now.artist && now.artist[0] ? now.artist : "Unknown artist",
+                     music_state() == MUSIC_PAUSED ? DOT "paused" : "");
+        } else if (music_can_resume(&t, &a)) {
+            c->kind = NC_RESUME;
+            c->title = t;
+            snprintf(c->line, sizeof(c->line), "%s", a && a[0] ? a : "Where the music stopped");
+        } else {
+            return 0;
+        }
+    } else if (v == VIEW_VIDEO) {
+        for (int i = 0; i < library_recent_count(v); i++) {
+            const Entry *e = library_recent(v, i);
+            int dur, ms = video_place(e->path, &dur);
+            if (!ms)
+                continue;
+            int s = ms / 1000;
+            c->kind = NC_VIDEO;
+            c->e = e;
+            c->title = e->title;
+            if (s >= 3600) snprintf(c->line, sizeof(c->line), "Stopped at %d:%02d:%02d", s / 3600, s / 60 % 60, s % 60);
+            else snprintf(c->line, sizeof(c->line), "Stopped at %d:%02d", s / 60, s % 60);
+            break;
+        }
+        if (!c->kind)
+            return 0;
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int numb_has_cont(void)
+{
+    NumbCont c;
+    return numb_cont(&c);
+}
+
+
+/* ✕ on the Continue card. */
+static void numb_cont_open(const NumbCont *c)
+{
+    if (c->kind == NC_GAME || c->kind == NC_VIDEO) ui_request_launch(c->e);
+    else if (c->kind == NC_PLAYING) np_open();
+    else if (c->kind == NC_RESUME) start_button();
+}
+
+/* The column of category c (snap: no animation). */
+static void numb_focus_cat(int c, int snap)
+{
+    int was = S.cat;
+    S.numb_on_cont = 0;
+    focus_card(c, snap);
+    int v = cat_view();
+    if (v >= 0) {
+        S.view = v;
+        S.screen = SCR_LIST;
+        select_entry(S.sel[v], 1);
+    } else {
+        S.screen = SCR_HOME;
+    }
+    if (!snap && c != was) { /* the new column slides in from the side it came from */
+        int dir = card_pos(c) > card_pos(was) ? 1 : -1;
+        spring_snap(&S.col_x, FX(24 * dir));
+        spring_to(&S.col_x, 0);
+    }
+}
+
+/* The shown categories, left to right, and where c is among them. */
+static int shown_pos(int c)
+{
+    int n = 0;
+    for (int k = 0; k < CAT_COUNT; k++)
+        if (cat_shown(S.order[k])) {
+            if (S.order[k] == c) return n;
+            n++;
+        }
+    return 0;
+}
+
+/* Once a frame, before the buttons: the interface may have been switched in Settings. */
+static int numb_frame(void)
+{
+    int switched = 0;
+    if (NUMB != S.numb_was) {
+        switched = 1; /* a frame is needed: the snaps below don't move a spring, so nothing else asks */
+        S.numb_was = NUMB;
+        if (NUMB) { /* into the cross bar: the focused card's column */
+            numb_focus_cat(S.cat, 1);
+            spring_snap(&S.bar_x, FX(shown_pos(S.cat)));
+            spring_snap(&S.col_x, 0);
+        } else { /* back to XLT's home, on the same card */
+            S.screen = SCR_HOME;
+            spring_snap(&S.trans, 0);
+            focus_card(S.cat, 1);
+        }
+    }
+    if (!NUMB)
+        return switched;
+    if (settings_is_open()) /* N4: back from Settings on the section last shown */
+        S.numb_set = settings_section();
+    /* a UMD going in or out (or a list opened from elsewhere) moved the focus: follow it */
+    int v = cat_view();
+    if (S.screen == SCR_LIST && S.view == VIEW_HIDDEN) {
+        /* Removed, opened from Settings: stays until ○ */
+    } else if (v >= 0 && (S.screen != SCR_LIST || S.view != v)) {
+        S.view = v;
+        S.screen = SCR_LIST;
+        select_entry(S.sel[v], 1);
+    } else if (v < 0) {
+        S.screen = SCR_HOME;
+    }
+    spring_to(&S.bar_x, FX(shown_pos(S.cat)));
+    return switched;
+}
+
+static int numb_input(unsigned int p)
+{
+    if (S.arranging)
+        return arrange_input(p);
+    if (p & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) {
+        int c = card_next(p & PSP_CTRL_LEFT ? -1 : 1);
+        if (c >= 0) numb_focus_cat(c, 0);
+        return 1;
+    }
+    if (S.screen == SCR_LIST) {
+        int s = S.sel[S.view];
+        if (S.pl_moving) /* moving a song in a playlist: only ↑/↓ and ✕ */
+            return list_input(p);
+        if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+            S.numb_on_cont = 0;
+            select_entry(s + (p & PSP_CTRL_LTRIGGER ? -list_rows() : list_rows()), 0);
+            return 1;
+        }
+        NumbCont nc;
+        int has = numb_cont(&nc);
+        if (!has)
+            S.numb_on_cont = 0;
+        if (S.numb_on_cont) { /* on the Continue card */
+            if (p & PSP_CTRL_DOWN) { S.numb_on_cont = 0; sfx_play(SFX_MOVE); return 1; }
+            if (p & PSP_CTRL_CROSS) { numb_cont_open(&nc); return 1; }
+            if (p & PSP_CTRL_TRIANGLE) { if (nc.e) opts_open(nc.e); return 1; }
+            if (p & (PSP_CTRL_UP | PSP_CTRL_CIRCLE)) return 1;
+        } else if (has && p & PSP_CTRL_UP && s == 0) {
+            S.numb_on_cont = 1;
+            sfx_play(SFX_MOVE);
+            return 1;
+        }
+        if (p & PSP_CTRL_CIRCLE && numb_depth() == 0 && S.view != VIEW_HIDDEN)
+            return 1; /* at the top of a category: nowhere to go back to */
+        int d = numb_depth();
+        int r = list_input(p);
+        int d2 = numb_depth();
+        if (d2 != d) { /* into a folder (the column comes in from the right) or out of one */
+            S.numb_on_cont = 0;
+            spring_snap(&S.col_x, FX(d2 > d ? 40 : -40));
+            spring_to(&S.col_x, 0);
+        }
+        return r;
+    }
+    /* UMD, Files, Web, Settings: their home rows, run down the column */
+    if (p & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_CIRCLE))
+        return 1;
+    if (S.cat == CAT_SETTINGS) { /* N4: every section; ✕ opens its settings as the next column */
+        int k = S.numb_set;
+        if (p & PSP_CTRL_UP && k > 0) { S.numb_set = k - 1; sfx_play(SFX_MOVE); return 1; }
+        if (p & PSP_CTRL_DOWN && k < SETTINGS_SECTIONS - 1) { S.numb_set = k + 1; sfx_play(SFX_MOVE); return 1; }
+        if (p & PSP_CTRL_CROSS) { settings_open_section(k); return 1; }
+        if (p & (PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_TRIANGLE)) return 1;
+    }
+    unsigned int q = p & ~(PSP_CTRL_UP | PSP_CTRL_DOWN);
+    if (p & PSP_CTRL_UP) q |= PSP_CTRL_LEFT;
+    if (p & PSP_CTRL_DOWN) q |= PSP_CTRL_RIGHT;
+    return home_input(q);
+}
+
+/* nuMB: what may preview in the focused card or the Continue card (once the column has
+ * stopped sliding). */
+static int previewable(int v);
+static const Entry *numb_preview_entry(void)
+{
+    if (S.col_x.x != 0)
+        return NULL;
+    if (S.screen == SCR_HOME && S.cat == CAT_UMD) /* the disc's ICON1, in its card */
+        return umd_state() == UMD_GAME ? umd_entry() : NULL;
+    if (S.screen != SCR_LIST)
+        return NULL;
+    NumbCont c;
+    if (S.numb_on_cont && numb_cont(&c))
+        return c.e; /* a game, homebrew or video: all can preview (the music has none) */
+    return previewable(S.view) && disp_count(S.view) ? disp_entry(S.view, S.sel[S.view]) : NULL;
+}
+
 /* The game or video whose preview may play: the focused tile or list row,
  * when nothing covers it. */
 static int previewable(int v) { return v == VIEW_GAMES || v == VIEW_HOMEBREW || v == VIEW_VIDEO; }
@@ -989,6 +1291,8 @@ static const Entry *preview_entry(void)
         return NULL;
     if (fm_is_open())
         return fm_preview_entry(); /* the focused file, if it's a video or a game */
+    if (NUMB)
+        return numb_preview_entry(); /* N3: the focused card's (or the Continue card's) */
     if (S.screen == SCR_HOME && S.trans.x == 0 && S.cat == CAT_UMD) {
         return umd_state() == UMD_GAME ? umd_entry() : NULL; /* the disc's ICON1 */
     } else if (S.screen == SCR_HOME && S.trans.x == 0) {
@@ -1059,6 +1363,7 @@ int ui_update(const Input *in, int status_changed)
     }
     dirty |= thumbs_pump();
 
+    dirty |= numb_frame(); /* nuMB: the switch, and the bar following the focus */
     unsigned int p = S.launch_pending ? 0 : in->pressed;
     if (p) {
         dirty = 1; /* the sheets and screens all react to some button */
@@ -1096,18 +1401,25 @@ int ui_update(const Input *in, int status_changed)
             fm_input(p);
         } else if (search_is_open()) {
             search_input(p);
+        } else if (NUMB) {
+            numb_input(p);
         } else if (S.screen == SCR_HOME) {
             home_input(p);
         } else {
             list_input(p);
         }
     }
+    /* again after the buttons: Settings > XLT > Interface may have just switched the layout, and this
+     * frame is drawn now (it would show the cross bar where it was until the next button press) */
+    dirty |= numb_frame();
     dirty |= opts_step();
     dirty |= np_step();
     dirty |= sd_step();
     music_poll(); /* saves where the music is, for next time */
     dirty |= osd_step();
     dirty |= settings_step();
+    if (search_is_open() && !sysctl_usb_active() && !cc_is_open() && !opts_is_open() && !menu_is_open())
+        dirty |= search_hold(S.launch_pending ? 0 : in->held); /* only while the search takes the buttons */
     dirty |= search_step();
     if (viewer_is_open())
         viewer_hold(in->held);
@@ -1117,6 +1429,8 @@ int ui_update(const Input *in, int status_changed)
     dirty |= reader_step();
     dirty |= web_step();
     dirty |= menu_step();
+    if (osk_is_open() && !sysctl_usb_active())
+        dirty |= osk_hold(S.launch_pending ? 0 : in->held);
     dirty |= osk_step();
     dirty |= cc_step();
     preview_target(preview_entry());
@@ -1134,6 +1448,8 @@ int ui_update(const Input *in, int status_changed)
     dirty |= step(&S.hl);
     dirty |= step(&S.scroll);
     dirty |= step(&S.gcol);
+    dirty |= step(&S.bar_x);
+    dirty |= step(&S.col_x);
 
     if (S.toast_left > 0 && --S.toast_left == 0) {
         S.toast = NULL;
@@ -1212,8 +1528,84 @@ void ui_draw_status_bar(const char *title, const SysStatus *st)
     draw_status_bar(title, 0, st, 0);
 }
 
+/* nuMB's top bar (docs/numb.md): the date and the screen's title on the left; USB, Wi-Fi,
+ * the battery with its percentage and time left, and the clock on the right. The right
+ * side is drawn first, and the left side's notes are fitted into the room it leaves. */
+static void numb_status_bar(const char *title, int search, const SysStatus *st, int ox)
+{
+    char buf[48];
+    format_clock(buf, sizeof(buf), st->hour, st->minute);
+    int x = SCREEN_W - MARGIN + ox - gfx_text_width(FONT_SMALL, buf);
+    gfx_text(FONT_SMALL, x, 5, buf, C_TEXT);
+    x -= 10;
+    if (st->battery >= 0) { /* "78% · 3 h 10 m", in the icon's colour, right of the icon */
+        char life[16] = "";
+        if (st->life_min > 0)
+            format_life(life, sizeof(life), st->life_min);
+        if (life[0]) snprintf(buf, sizeof(buf), "%d%%" DOT "%s", st->battery, life);
+        else snprintf(buf, sizeof(buf), "%d%%", st->battery);
+        x -= gfx_text_width(FONT_SMALL, buf);
+        gfx_text(FONT_SMALL, x, 5, buf, ui_battery_color(st));
+        x -= 5 + 22;
+        ui_draw_battery(x, 9, st);
+        x -= 10;
+    }
+    if (st->wifi_on) {
+        x -= 14;
+        gfx_icon(ICON_WIFI, x, 6, 14, 14, C_MUTED);
+        x -= 8;
+    }
+    if (usbsync_attached()) {
+        x -= 14;
+        gfx_icon(ICON_USB, x, 6, 14, 14, usbsync_talking() ? C_FOCUS : C_MUTED);
+        x -= 8;
+    }
+    if (search) {
+        x -= 14;
+        gfx_icon(ICON_SEARCH, x, 7, 13, 13, C_MUTED);
+        x -= 8;
+    }
+    const int right = x - 4; /* the left side stops here */
+
+    int tx = MARGIN + ox;
+    format_date_short(buf, sizeof(buf), st);
+    if (buf[0])
+        tx = gfx_text(FONT_SMALL, tx, 5, buf, C_TEXT);
+    const char *notes[4];
+    u32 cols[4];
+    int n = 0;
+    if (title && title[0]) { notes[n] = title; cols[n++] = C_MUTED; }
+    if (S.scanning) { notes[n] = "Scanning..."; cols[n++] = C_FOCUS; }
+    if (g_safe_start) { notes[n] = "Safe start"; cols[n++] = C_FOCUS; }
+    char sync[24];
+    if (usbsync_progress(sync, sizeof(sync))) { notes[n] = sync; cols[n++] = C_FOCUS; }
+    for (int i = 0; i < n; i++) {
+        int sep = tx > MARGIN + ox ? gfx_text_width(FONT_SMALL, DOT) : 0;
+        if (right - tx - sep < 40)
+            return;
+        if (sep) tx = gfx_text(FONT_SMALL, tx, 5, DOT, C_MUTED);
+        int w = gfx_text_width(FONT_SMALL, notes[i]);
+        if (w > right - tx) w = right - tx;
+        gfx_text_fit(FONT_SMALL, tx, 5, w, notes[i], cols[i]);
+        tx += w;
+    }
+    MusicNow now;
+    if (music_state() != MUSIC_STOPPED && music_now(&now) == 0 && !np_is_open() && right - tx > 70) {
+        int paused = music_state() == MUSIC_PAUSED;
+        u32 c = paused ? C_MUTED : C_FOCUS;
+        gfx_icon(ICON_MUSIC, tx + 10, 6, 13, 13, c);
+        char t[96];
+        snprintf(t, sizeof(t), paused ? "%s (paused)" : "%s", now.title);
+        gfx_text_fit(FONT_SMALL, tx + 26, 5, right - tx - 26, t, c);
+    }
+}
+
 static void draw_status_bar(const char *title, int search, const SysStatus *st, int ox)
 {
+    if (NUMB) {
+        numb_status_bar(title, search, st, ox);
+        return;
+    }
     char buf[16];
     int tx = gfx_text(FONT_SMALL, MARGIN + ox, 5, title, C_MUTED);
     if (S.scanning)
@@ -1328,10 +1720,77 @@ void ui_dim(int t)
     gfx_rect(0, 0, SCREEN_W, SCREEN_H, (u32)((150 * t) >> 8) << 24); /* black, up to ~60% */
 }
 
+#define SHEET_INSET 4 /* nuMB: the floating sheet's gap to the screen's edges */
+
+int ui_sheet_x(int w, int t)
+{
+    return SCREEN_W - (((w + (NUMB ? SHEET_INSET : 0)) * t) >> 8);
+}
+
+void ui_draw_sheet(int x, int w)
+{
+    if (NUMB) {
+        gfx_rrect(x, SHEET_INSET, w, SCREEN_H - 2 * SHEET_INSET, 12, C_LINE);
+        gfx_rrect(x + 1, SHEET_INSET + 1, w - 2, SCREEN_H - 2 * SHEET_INSET - 2, 11, C_SURFACE);
+        return;
+    }
+    gfx_rect(x, 0, w, SCREEN_H, C_SURFACE);
+    gfx_rect(x, 0, 1, SCREEN_H, C_LINE);
+}
+
+/* Hints from x to the right; returns where they end. */
+static int draw_hints_from(const Hint *hints, int n, int x, int y)
+{
+    for (int i = 0; i < n; i++) {
+        const Hint *h = &hints[i];
+        if (h->icon >= 0) {
+            gfx_icon(h->icon, x, y + 3, HINT_ICON, HINT_ICON, btn_tint(h->tint));
+            x += HINT_ICON + 4;
+        } else {
+            x = gfx_text(FONT_SMALL, x, y, h->key, C_TEXT) + 4;
+        }
+        x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + HINT_GAP;
+    }
+    return x - HINT_GAP;
+}
+
+/* nuMB's hint bar (docs/numb.md): no line, the screen's hints from the left, and the
+ * quick menu (SELECT, the control center) on its own at the right. */
+static void numb_hints_row(const Hint *hints, int n, int ox, int y, int quick_menu)
+{
+    static const Hint quick = {-1, "SELECT", 0, "Quick menu"};
+    Hint left[8];
+    int k = 0;
+    for (int i = 0; i < n && k < COUNT(left); i++)
+        if (hints[i].icon >= 0 || strcmp(hints[i].key, "SELECT"))
+            left[k++] = hints[i];
+    int end = draw_hints_from(left, k, MARGIN + ox, y);
+    /* the quick menu at the right, when the screen's own hints leave room for it (SELECT works anyway) */
+    if (quick_menu && end + HINT_GAP + hint_width(&quick) <= SCREEN_W - MARGIN + ox)
+        draw_hints_from(&quick, 1, SCREEN_W - MARGIN + ox - hint_width(&quick), y);
+}
+
+static void numb_footer(const Hint *hints, int n, int ox) { numb_hints_row(hints, n, ox, FOOTER_Y + 5, 1); }
+
+/* N5: a full screen's own hint row (Files, the Reader, Web, Search, Save data, Now Playing,
+ * the picture viewer, the video player...): XLT's centred row, or nuMB's from the left with
+ * the quick menu at the right (quick_menu 0: SELECT does nothing there). */
+void ui_draw_screen_footer(const Hint *hints, int n, int y, int quick_menu)
+{
+    if (NUMB)
+        numb_hints_row(hints, n, 0, y, quick_menu);
+    else
+        ui_draw_hints(hints, n, SCREEN_W / 2, y);
+}
+
 static void draw_footer(const Hint *hints, int n, int ox)
 {
     if (cc_is_open())
         return; /* the control center has its own hints; two rows of them confuse */
+    if (NUMB) {
+        numb_footer(hints, n, ox);
+        return;
+    }
     gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE);
     ui_draw_hints(hints, n, SCREEN_W / 2 + ox, FOOTER_Y + 5);
 }
@@ -1666,7 +2125,7 @@ static void draw_umd_row(int ox)
 
 static void draw_home(const SysStatus *st, int ox)
 {
-    draw_status_bar("Home", 0, st, ox);
+    draw_status_bar(NUMB ? NULL : "Home", 0, st, ox); /* nuMB: the date says enough */
     draw_cards(ox);
     if (cat_view() >= 0) {
         draw_tile_row(cat_view(), ox);
@@ -1683,13 +2142,18 @@ static void draw_home(const SysStatus *st, int ox)
     }
     if (S.arranging) {
         static const Hint arrange_h[] = {
-            {-1, "Left/Right", 0, "Move"},
+            {-1, KEY_LR, 0, "Move"},
             {-1, "L/R", 0, "Pick"},
             {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Done"},
         };
         draw_footer(arrange_h, COUNT(arrange_h), ox);
-    } else {
-        draw_footer(s_home_hints, COUNT(s_home_hints), ox);
+    } else { /* △ only where it does something */
+        Hint h[COUNT(s_home_hints)];
+        int n = 0;
+        for (int i = 0; i < (int)COUNT(s_home_hints); i++)
+            if (s_home_hints[i].icon != ICON_BTN_TRIANGLE || home_has_options())
+                h[n++] = s_home_hints[i];
+        draw_footer(h, n, ox);
     }
 }
 
@@ -2121,7 +2585,7 @@ static void draw_list(const SysStatus *st, int ox)
     memcpy(all, h, sizeof(Hint) * hn);
     if (S.pl_moving && v == VIEW_MUSIC) { /* moving a song: only these do anything */
         static const Hint move_h[] = {
-            {-1, "Up/Down", 0, "Move"},
+            {-1, KEY_UD, 0, "Move"},
             {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Done"},
         };
         draw_footer(move_h, COUNT(move_h), ox);
@@ -2139,6 +2603,462 @@ static void draw_list(const SysStatus *st, int ox)
         hn++;
     }
     draw_footer(all, hn, ox);
+}
+
+/* ------------------------------------------------- nuMB: drawing the cross bar */
+
+static void numb_cat_icon(int c, int cx, int cy, int s, u32 col)
+{
+    if (c == CAT_WEB)
+        web_draw_icon(WEB_ICON_GLOBE, cx - s / 2, cy - s / 2, s, s, col);
+    else
+        gfx_icon(s_cats[c].icon, cx - s / 2, cy - s / 2, s, s, col);
+}
+
+/* The categories across the screen. The focused one sits in a box at NUMB_FOCUS_X; the
+ * bar slides (S.bar_x) so the focus always lands there, the icons growing into the box. */
+static void numb_draw_bar(void)
+{
+    int k = 0;
+    for (int o = 0; o < CAT_COUNT; o++) {
+        int c = S.order[o];
+        if (!cat_shown(c))
+            continue;
+        int d = FX(k++) - S.bar_x.x; /* Q8: how far from the focus */
+        int cx = NUMB_FOCUS_X + ((d * NUMB_PITCH) >> 8);
+        if (cx < -NUMB_BOX || cx > SCREEN_W + NUMB_BOX)
+            continue;
+        int ad = d < 0 ? -d : d, t = ad >= 256 ? 0 : 256 - ad; /* 256 in the box */
+        int box = (NUMB_BOX * t) >> 8;
+        if (box > 10)
+            gfx_rrect(cx - box / 2, NUMB_BAR_CY - box / 2, box, box, box * 24 / 100, C_SURFACE);
+        int is = NUMB_ICON + (((NUMB_BOX * 58 / 100 - NUMB_ICON) * t) >> 8);
+        numb_cat_icon(c, cx, NUMB_BAR_CY, is, color_lerp(C_MUTED, C_TEXT, t));
+    }
+    gfx_ring(NUMB_FOCUS_X - NUMB_BOX / 2 - 2, NUMB_BAR_CY - NUMB_BOX / 2 - 2, NUMB_BOX + 4, NUMB_BOX + 4, C_FOCUS);
+}
+
+void ui_numb_draw_bar(void) { numb_draw_bar(); }
+void ui_draw_footer_hints(const Hint *hints, int n) { draw_footer(hints, n, 0); }
+
+/* Under the bar: the category, and where in it the column is ("Games / Racing · 4"). */
+static void numb_draw_label(void)
+{
+    char t[96], c[16] = "";
+    int v = S.screen == SCR_LIST ? S.view : -1;
+    if (S.arranging) {
+        int pos = card_pos(S.cat); /* an arrow each way it can still go */
+        snprintf(t, sizeof(t), "%s  %s  %s", pos > 1 ? "<" : " ", s_cats[S.cat].name, pos < CAT_COUNT - 1 ? ">" : " ");
+    } else if (v == VIEW_HIDDEN) {
+        snprintf(t, sizeof(t), "Settings / Removed");
+    } else if (v >= 0 && grouped(v) && S.folder[v][0]) {
+        snprintf(t, sizeof(t), "%s / %s", s_cats[S.cat].name, S.folder[v]);
+    } else if (v == VIEW_MUSIC && in_pl()) {
+        snprintf(t, sizeof(t), "Music / %.60s", pl_name(pl_open_index()));
+    } else if (v == VIEW_MUSIC && S.mb_level == 1) {
+        snprintf(t, sizeof(t), "Music / %s", s_mb_title[S.mb_kind]);
+    } else if (v == VIEW_MUSIC && S.mb_level == 2) {
+        snprintf(t, sizeof(t), "Music / %.60s",
+                 S.mb_name[0] ? S.mb_name : S.mb_kind == MB_ALBUMS ? "Unknown album" : "Unknown artist");
+    } else {
+        snprintf(t, sizeof(t), "%s", s_cats[S.cat].name);
+    }
+    if (v >= 0 && !S.arranging && disp_count(v) > 0)
+        snprintf(c, sizeof(c), DOT "%d", disp_count(v));
+    int cw = gfx_text_width(FONT_SMALL, c);
+    int x = NUMB_COL_X, w = SCREEN_W - MARGIN - x - cw;
+    gfx_text_fit(FONT_BOLD, x, NUMB_LABEL_Y, w, t, C_TEXT);
+    int tw = gfx_text_width(FONT_BOLD, t);
+    if (c[0])
+        gfx_text(FONT_SMALL, x + (tw < w ? tw : w), NUMB_LABEL_Y + 3, c, C_MUTED);
+}
+
+/* A count at the right end of a row. */
+static void numb_count(int n, int x, int y, int sel)
+{
+    char c[12];
+    snprintf(c, sizeof(c), "%d", n);
+    gfx_text_right(FONT_SMALL, x + NUMB_COL_W - 10, y + (NUMB_ROW_H - gfx_line_h(FONT_SMALL)) / 2, c,
+                   sel ? C_WHITE : C_MUTED);
+}
+
+/* One row of a library column: a small picture or icon, the name, and a count, star or note. */
+static void numb_list_row(int v, int i, int x, int y, int sel, const char *playing)
+{
+    int f = sel ? FONT_BOLD : FONT_BODY, ty = y + (NUMB_ROW_H - gfx_line_h(f)) / 2;
+    int ix = x + 8, tx = x + 44, right = x + NUMB_COL_W - 8;
+    u32 tc = sel ? C_WHITE : C_TEXT;
+    int mt = disp_mtop(v, i), mg = disp_mgroup(v, i), pk = disp_playlist(v, i);
+    if (mt >= 0 || mg >= 0) {
+        const MbGroup *g = mg >= 0 ? mb_group(S.mb_kind, mg) : NULL;
+        int kind = mt >= 0 ? mt : S.mb_kind;
+        if (g) ui_draw_cover(music_get(g->cover), ix + 5, y + 3, NUMB_ROW_H - 6, 3, sel ? C_ACCENT : C_BG);
+        else gfx_icon(kind == MB_ARTISTS ? ICON_ARTIST : ICON_ALBUM, ix + 7, y + 5, 16, 16, sel ? C_WHITE : C_PLAYLIST);
+        gfx_text_fit(f, tx, ty, right - tx - 30, g ? mb_label(g) : s_mb_title[mt], tc);
+        numb_count(g ? g->count : mb_count(mt), x, y, sel);
+        return;
+    }
+    if (pk >= 0) {
+        gfx_icon(ICON_MUSIC, ix + 7, y + 5, 16, 16, sel ? C_WHITE : C_PLAYLIST);
+        gfx_text_fit(f, tx, ty, right - tx - 30, pl_name(pk), tc);
+        numb_count(pl_songs(pk), x, y, sel);
+        return;
+    }
+    const Entry *e = disp_entry(v, i);
+    if (!e) { /* a folder */
+        int fo = disp_folder(v, i);
+        gfx_icon(ICON_FOLDER, ix + 7, y + 5, 16, 16, sel ? C_WHITE : RGB(0xd29922));
+        gfx_text_fit(f, tx, ty, right - tx - 30, groups_folder_name(v, fo), tc);
+        numb_count(S.fcount[v][fo], x, y, sel);
+        return;
+    }
+    if (kind_is_music(e->kind))
+        ui_draw_cover(e, ix + 5, y + 3, NUMB_ROW_H - 6, 3, sel ? C_ACCENT : C_BG);
+    else if (kind_is_video(e->kind))
+        gfx_icon(ICON_VIDEO, ix + 7, y + 5, 16, 16, sel ? C_WHITE : C_MUTED);
+    else if (kind_is_picture(e->kind))
+        gfx_icon(ICON_PICTURE, ix + 7, y + 5, 16, 16, sel ? C_WHITE : C_MUTED);
+    else
+        draw_art(e, ix, y + 4, 30, NUMB_ROW_H - 8, 0, 0); /* the game's ICON0, small */
+    int fav = favorite_get(e->path), mark = playing && !strcmp(playing, e->path);
+    int end = right - (fav ? 18 : 0) - (mark ? 18 : 0);
+    gfx_text_fit(f, tx, ty, end - tx, e->title, tc);
+    int mx = right - 14;
+    if (fav) { gfx_icon(ICON_STAR, mx, y + 7, 12, 12, sel ? C_WHITE : C_FOCUS); mx -= 18; }
+    if (mark) gfx_icon(ICON_MUSIC, mx, y + 7, 12, 12, sel ? C_WHITE : C_FOCUS);
+}
+
+/* N3: what the focused row's details card says under the title. */
+static void numb_detail(int v, int i, char *line, int n)
+{
+    const Entry *e = disp_entry(v, i);
+    int mt = disp_mtop(v, i), mg = disp_mgroup(v, i), pk = disp_playlist(v, i);
+    line[0] = 0;
+    if (mt >= 0) {
+        int c = mb_count(mt);
+        snprintf(line, n, "%d %s", c, mt == MB_ARTISTS ? (c == 1 ? "artist" : "artists") : c == 1 ? "album" : "albums");
+    } else if (mg >= 0) {
+        const MbGroup *g = mb_group(S.mb_kind, mg);
+        if (g) mb_line(line, n, S.mb_kind, g);
+    } else if (pk >= 0) {
+        songs_line(line, n, pk);
+    } else if (!e) {
+        int fo = disp_folder(v, i), k = fo >= 0 ? S.fcount[v][fo] : 0;
+        snprintf(line, n, "Folder" DOT "%d %s", k, v == VIEW_HOMEBREW ? (k == 1 ? "app" : "apps") : k == 1 ? "game" : "games");
+    } else if (kind_is_music(e->kind)) {
+        snprintf(line, n, "%.44s%s%.44s", e->artist[0] ? e->artist : "Unknown artist", e->album[0] ? DOT : "", e->album);
+    } else if (kind_is_video(e->kind)) {
+        int dur, ms = video_place(e->path, &dur);
+        if (ms) {
+            int sec = ms / 1000;
+            snprintf(line, n, "Stopped at %d:%02d", sec / 60, sec % 60);
+        } else {
+            grid_detail(e, line, n);
+        }
+    } else if (!kind_is_picture(e->kind) && history_played(e->path)) {
+        history_describe(e->path, line, n); /* "12 h 40 min · played yesterday" */
+    } else {
+        grid_detail(e, line, n);
+    }
+}
+
+/* N3: the picture on a details or Continue card, w x h at x, y: the game's ICON0 (or its
+ * ICON1 playing), a video's still (or its preview), a cover, or an icon in a tile. */
+static void numb_card_art(int v, int i, const Entry *e, int x, int y, int w, int h, u32 bg)
+{
+    if (!e) {
+        int mt = v >= 0 ? disp_mtop(v, i) : -1, mg = v >= 0 ? disp_mgroup(v, i) : -1;
+        int pk = v >= 0 ? disp_playlist(v, i) : -1;
+        if (mg >= 0) {
+            const MbGroup *g = mb_group(S.mb_kind, mg);
+            if (g) { ui_draw_cover(music_get(g->cover), x + (w - h) / 2, y, h, 4, bg); return; }
+        }
+        gfx_rrect(x, y, w, h, 4, C_RAISED);
+        int icon = mt >= 0 ? (mt == MB_ARTISTS ? ICON_ARTIST : ICON_ALBUM) : pk >= 0 ? ICON_MUSIC : ICON_FOLDER;
+        u32 c = mt >= 0 || pk >= 0 ? C_PLAYLIST : RGB(0xd29922);
+        gfx_icon(icon, x + (w - 20) / 2, y + (h - 20) / 2, 20, 20, c);
+        return;
+    }
+    if (kind_is_music(e->kind)) {
+        ui_draw_cover(e, x + (w - h) / 2, y, h, 4, bg);
+    } else if (kind_is_video(e->kind)) {
+        if (preview_draw(e, x, y, w, h)) {
+            draw_watched(e, x, y, w, h);
+        } else {
+            const void *tex = thumbs_get(e);
+            if (tex) { gfx_rect(x, y, w, h, RGB(0x000000)); gfx_thumb(tex, x, y, w, h); draw_watched(e, x, y, w, h); }
+            else { if (thumbs_missing(e)) preview_want_thumb(e); gfx_rrect(x, y, w, h, 4, C_RAISED);
+                   gfx_icon(ICON_VIDEO, x + (w - 20) / 2, y + (h - 20) / 2, 20, 20, C_MUTED); }
+        }
+    } else if (!kind_is_picture(e->kind) && preview_draw(e, x, y, w, h)) {
+        /* ICON1 in place of ICON0 */
+    } else {
+        draw_art(e, x, y, w, h, 0, 0);
+    }
+}
+
+#define NUMB_ART_W 54
+#define NUMB_ART_H 30
+
+/* N3: the focused row, grown into a card: its picture, the name in bold, a line of details,
+ * and a count or star at the right. Drawn on the highlight (white text). */
+static void numb_focus_row(int v, int i, int x, int y, int h, const char *playing)
+{
+    const Entry *e = disp_entry(v, i);
+    int ah = h - 12 < NUMB_ART_H ? h - 12 : NUMB_ART_H;
+    if (ah > 8)
+        numb_card_art(v, i, e, x + 6, y + (h - ah) / 2, NUMB_ART_W, ah, C_ACCENT);
+    int tx = x + 6 + NUMB_ART_W + 10, right = x + NUMB_COL_W - 10;
+    int mt = disp_mtop(v, i), mg = disp_mgroup(v, i), pk = disp_playlist(v, i);
+    const MbGroup *g = mg >= 0 ? mb_group(S.mb_kind, mg) : NULL;
+    const char *name = mt >= 0 ? s_mb_title[mt] : g ? mb_label(g) : pk >= 0 ? pl_name(pk)
+                     : e ? e->title : groups_folder_name(v, disp_folder(v, i));
+    int marks = 0;
+    if (e && favorite_get(e->path)) { gfx_icon(ICON_STAR, right - 12, y + 6, 12, 12, C_WHITE); marks += 18; }
+    if (e && playing && !strcmp(playing, e->path)) { gfx_icon(ICON_MUSIC, right - 12 - marks, y + 6, 12, 12, C_WHITE); marks += 18; }
+    char line[96];
+    numb_detail(v, i, line, sizeof(line));
+    int lb = gfx_line_h(FONT_BOLD), ls = gfx_line_h(FONT_SMALL);
+    int ty = y + (h - lb - ls) / 2;
+    gfx_text_fit(FONT_BOLD, tx, ty, right - tx - marks, name, C_WHITE);
+    gfx_text_fit(FONT_SMALL, tx, ty + lb, right - tx, line, C_WHITE);
+}
+
+/* N3: the Continue card at x, y (focused: on the highlight). */
+static void numb_cont_card(const NumbCont *c, int x, int y, int focused)
+{
+    u32 bg = focused ? C_ACCENT : C_SURFACE;
+    if (!focused)
+        gfx_rrect(x, y, NUMB_COL_W, NUMB_CONT_H, 8, C_LINE);
+    gfx_rrect(x + !focused, y + !focused, NUMB_COL_W - 2 * !focused, NUMB_CONT_H - 2 * !focused, 8, bg);
+    int ah = NUMB_CONT_H - 12;
+    if (c->e) {
+        numb_card_art(-1, 0, c->e, x + 6, y + 6, NUMB_ART_W, ah, bg);
+    } else { /* the music: the song's cover if it's in the library, else a note */
+        MusicNow now;
+        const Entry *e = NULL;
+        if (music_state() != MUSIC_STOPPED && music_now(&now) == 0) {
+            int k = library_find(VIEW_MUSIC, now.path);
+            if (k >= 0) e = library_get(VIEW_MUSIC, k);
+        }
+        if (e) ui_draw_cover(e, x + 6 + (NUMB_ART_W - ah) / 2, y + 6, ah, 4, bg);
+        else { gfx_rrect(x + 6, y + 6, NUMB_ART_W, ah, 4, focused ? C_ACCENT_DK : C_RAISED);
+               gfx_icon(ICON_MUSIC, x + 6 + (NUMB_ART_W - 18) / 2, y + 6 + (ah - 18) / 2, 18, 18, focused ? C_WHITE : C_FOCUS); }
+    }
+    int tx = x + 6 + NUMB_ART_W + 10, right = x + NUMB_COL_W - 10;
+    int lb = gfx_line_h(FONT_BOLD), ls = gfx_line_h(FONT_SMALL), ty = y + (NUMB_CONT_H - lb - ls) / 2;
+    const char *what = c->kind == NC_PLAYING ? "Now playing: " : "Continue: ";
+    int ww = gfx_text_width(FONT_BOLD, what);
+    gfx_text(FONT_BOLD, tx, ty, what, focused ? C_WHITE : C_FOCUS);
+    gfx_text_fit(FONT_BOLD, tx + ww, ty, right - tx - ww, c->title ? c->title : "", focused ? C_WHITE : C_TEXT);
+    gfx_text_fit(FONT_SMALL, tx, ty + lb, right - tx, c->line, focused ? C_WHITE : C_MUTED);
+}
+
+/* The column of a library category: the Continue card (N3) at its top level, then XLT's list,
+ * one row each; the focused row grows into a details card (N3), the growth and the highlight
+ * following XLT's springs. Rows scrolling past the column's ends fade out (a mask in the
+ * background colour would show: the GE dithers it, the cleared screen isn't).
+ * a: the column's own opacity. */
+static void numb_list_column(int x, int a)
+{
+    int v = S.view, n = disp_count(v), sel = S.sel[v];
+    NumbCont nc;
+    int has = numb_cont(&nc), on = has && S.numb_on_cont;
+    int scroll_px = (S.scroll.x * NUMB_ROW_H) >> 8;
+    int rows_y0 = NUMB_COL_Y + (has ? NUMB_CONT_H + NUMB_CONT_GAP : 0) - scroll_px;
+    if (has) { /* scrolls away with the rows */
+        int cy = NUMB_COL_Y - scroll_px, ca = 256;
+        if (cy < NUMB_COL_Y) ca = 256 - (NUMB_COL_Y - cy) * 256 / NUMB_CONT_H;
+        if (ca > 0) {
+            gfx_set_opacity((a * ca) >> 8);
+            numb_cont_card(&nc, x, cy, on);
+            gfx_set_opacity(a);
+        }
+    }
+    if (n == 0) {
+        const char *msg = S.scanning ? "Scanning the Memory Stick..."
+                        : v == VIEW_HIDDEN ? "Nothing removed from the library"
+                        : grouped(v) && S.folder[v][0] ? "This folder is empty"
+                        : v == VIEW_MUSIC && in_pl() ? "This playlist is empty"
+                        : S.cat >= 0 ? s_cats[S.cat].empty : "Nothing here yet";
+        gfx_text_fit(FONT_BODY, x + 8, rows_y0 + 6, NUMB_COL_W - 16, msg, C_MUTED);
+        return;
+    }
+    /* how much each row has grown: all of it at the focus, part of it while the focus moves */
+    const int hl = on ? FX(-4) : S.hl.x; /* on the Continue card: no row is focused */
+    #define GROW(i) ({ int d_ = FX(i) - hl; d_ = d_ < 0 ? -d_ : d_; d_ >= 256 ? 0 : (NUMB_FOCUS_EXTRA * (256 - d_)) >> 8; })
+    int j0 = hl >> 8; /* the two rows that can be grown: j0 and j0 + 1 */
+    #define EXTRA_BEFORE(q) ({ int e_ = 0; for (int j_ = j0; j_ <= j0 + 1; j_++) { if (j_ < 0) continue; \
+        int f_ = (q) - FX(j_); f_ = f_ < 0 ? 0 : f_ > 256 ? 256 : f_; e_ += (GROW(j_) * f_) >> 8; } e_; })
+    if (!on) {
+        int hy = rows_y0 + (((S.hl.x) * NUMB_ROW_H) >> 8) + EXTRA_BEFORE(S.hl.x);
+        int hh = NUMB_ROW_H + NUMB_FOCUS_EXTRA;
+        if (hy < NUMB_COL_Y) hy = NUMB_COL_Y;
+        if (hy > NUMB_COL_BOTTOM - hh) hy = NUMB_COL_BOTTOM - hh;
+        gfx_rrect(x, hy, NUMB_COL_W, hh, 8, C_ACCENT);
+        if (S.pl_moving && v == VIEW_MUSIC)
+            gfx_ring(x - 2, hy - 2, NUMB_COL_W + 4, hh + 4, C_FOCUS);
+    }
+    MusicNow now;
+    const char *playing = music_state() != MUSIC_STOPPED && music_now(&now) == 0 ? now.path : NULL;
+    int first = (S.scroll.x >> 8) - 1;
+    for (int i = first < 0 ? 0 : first; i < n && i <= first + 7; i++) {
+        int y = rows_y0 + i * NUMB_ROW_H + EXTRA_BEFORE(FX(i)), h = NUMB_ROW_H + GROW(i), ra = 256;
+        if (y < NUMB_COL_Y) ra = 256 - (NUMB_COL_Y - y) * 256 / h;
+        if (y + h > NUMB_COL_BOTTOM) ra = 256 - (y + h - NUMB_COL_BOTTOM) * 256 / h;
+        if (ra <= 0)
+            continue;
+        gfx_set_opacity((a * ra) >> 8);
+        if (i == sel && !on) numb_focus_row(v, i, x, y, h, playing);
+        else numb_list_row(v, i, x, y, 0, playing);
+    }
+    #undef GROW
+    #undef EXTRA_BEFORE
+    gfx_set_opacity(a);
+}
+
+/* A row of the other categories' columns: an icon, the name, and a line about it. */
+static void numb_home_row(int x, int y, int sel, int icon, u32 icol, const char *name, const char *sub)
+{
+    if (sel)
+        gfx_rrect(x, y, NUMB_COL_W, NUMB_ROW_H, 6, C_ACCENT);
+    int f = sel ? FONT_BOLD : FONT_BODY, tx = x + 44;
+    if (icon == -2) web_draw_icon(WEB_ICON_GLOBE_S, x + 15, y + 5, 16, 16, sel ? C_WHITE : icol);
+    else gfx_icon(icon, x + 15, y + 5, 16, 16, sel ? C_WHITE : icol);
+    int nw = gfx_text_width(f, name), room = NUMB_COL_W - 52;
+    if (nw > room) nw = room;
+    gfx_text_fit(f, tx, y + (NUMB_ROW_H - gfx_line_h(f)) / 2, nw, name, sel ? C_WHITE : C_TEXT);
+    if (sub && sub[0] && room - nw > 40)
+        gfx_text_fit(FONT_SMALL, tx + nw + 10, y + (NUMB_ROW_H - gfx_line_h(FONT_SMALL)) / 2 + 1, room - nw - 10, sub,
+                     sel ? C_WHITE : C_MUTED);
+}
+
+/* The UMD's column: one details card, as the focused game in a list gets (its ICON0, or its
+ * ICON1 playing, the title, and "UMD · ID · region · FW"). */
+static void numb_umd_card(int x, int y)
+{
+    int st = umd_state(), h = NUMB_ROW_H + NUMB_FOCUS_EXTRA;
+    const Entry *e = umd_entry();
+    gfx_rrect(x, y, NUMB_COL_W, h, 8, C_ACCENT);
+    int ah = h - 12, ax = x + 6, ay = y + 6;
+    if (st == UMD_GAME) {
+        numb_card_art(-1, 0, e, ax, ay, NUMB_ART_W, ah, C_ACCENT);
+    } else {
+        gfx_rrect(ax, ay, NUMB_ART_W, ah, 4, C_ACCENT_DK);
+        gfx_icon(st == UMD_VIDEO ? ICON_VIDEO : ICON_UMD, ax + (NUMB_ART_W - 20) / 2, ay + (ah - 20) / 2, 20, 20, C_WHITE);
+    }
+    char line[64];
+    const char *title = st == UMD_GAME || st == UMD_VIDEO ? e->title
+                      : st == UMD_READING ? "Reading the disc..." : "This disc can't be read";
+    if (st == UMD_GAME) { /* as Classic's UMD row says it */
+        const char *reg = region_name(e->id);
+        int o = snprintf(line, sizeof(line), "UMD");
+        if (e->id[0]) o += snprintf(line + o, sizeof(line) - o, DOT "%s", e->id);
+        if (reg) o += snprintf(line + o, sizeof(line) - o, DOT "%s", reg);
+        if (e->sysver[0]) snprintf(line + o, sizeof(line) - o, DOT "FW %s", e->sysver);
+    } else if (st == UMD_VIDEO) {
+        snprintf(line, sizeof(line), "UMD Video" DOT "play it from the XMB");
+    } else if (st == UMD_READING) {
+        snprintf(line, sizeof(line), "The disc is spinning up");
+    } else {
+        snprintf(line, sizeof(line), "Not a PSP game, or the disc is dirty");
+    }
+    int tx = ax + NUMB_ART_W + 10, right = x + NUMB_COL_W - 10;
+    int lb = gfx_line_h(FONT_BOLD), ls = gfx_line_h(FONT_SMALL), ty = y + (h - lb - ls) / 2;
+    gfx_text_fit(FONT_BOLD, tx, ty, right - tx, title, C_WHITE);
+    gfx_text_fit(FONT_SMALL, tx, ty + lb, right - tx, line, C_WHITE);
+}
+
+/* UMD, Files, Web and Settings: their home rows, down the column. */
+static void numb_home_column(int x)
+{
+    int r = cat_row(), sel = r >= 0 ? S.tile[r] : 0, n = 0;
+    if (S.cat == CAT_SETTINGS) { n = SETTINGS_SECTIONS; sel = S.numb_set; } /* N4: every section */
+    else if (S.cat == CAT_FILES) n = files_places() + 2;
+    else if (S.cat == CAT_WEB) n = web_tile_count() + 1;
+    else if (S.cat == CAT_UMD) n = 1;
+    if (sel >= n) sel = n - 1;
+    int top = sel >= NUMB_ROWS ? sel - NUMB_ROWS + 1 : 0;
+    for (int i = top; i < n && i < top + NUMB_ROWS; i++) {
+        int y = NUMB_COL_Y + (i - top) * NUMB_ROW_H, s = i == sel;
+        if (S.cat == CAT_SETTINGS) {
+            numb_home_row(x, y, s, settings_section_icon(i), C_FOCUS, settings_section_name(i), settings_section_sub(i));
+        } else if (S.cat == CAT_FILES) {
+            int p = files_places();
+            if (i < p)
+                numb_home_row(x, y, s, fm_place_icon(i), fm_place_icon(i) == ICON_FOLDER ? RGB(0xd29922) : C_FOCUS,
+                              fm_place_name(i), fm_place_path(i));
+            else if (i == p)
+                numb_home_row(x, y, s, ICON_GAMES, C_FOCUS, "Save data", "Back up, restore");
+            else
+                numb_home_row(x, y, s, ICON_GRID, C_MUTED, "Browse", fm_busy() ? "Working..." : "All files");
+        } else if (S.cat == CAT_WEB) {
+            int w = web_tile_count();
+            if (i < w) {
+                numb_home_row(x, y, s, i == 0 ? ICON_SEARCH : -2, C_FOCUS, web_tile_name(i), web_tile_sub(i));
+            } else {
+                const char *last = web_last_title();
+                numb_home_row(x, y, s, -2, C_MUTED, last[0] ? "Continue" : "Browser", last[0] ? last : "Type an address");
+            }
+        } else { /* the disc: a details card like a game's (its ICON0, or ICON1 playing) */
+            numb_umd_card(x, y);
+        }
+    }
+}
+
+static void numb_draw_footer(void)
+{
+    static const Hint arrange_h[] = {
+        {-1, KEY_LR, 0, "Move"},
+        {-1, "L/R", 0, "Pick"},
+        {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Done"},
+    };
+    static const Hint move_h[] = {
+        {-1, KEY_UD, 0, "Move"},
+        {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Done"},
+    };
+    if (S.arranging) { draw_footer(arrange_h, COUNT(arrange_h), 0); return; }
+    if (S.pl_moving && S.screen == SCR_LIST && S.view == VIEW_MUSIC) { draw_footer(move_h, COUNT(move_h), 0); return; }
+    Hint h[6];
+    int n = 0;
+    const char *open = "Open";
+    NumbCont nc;
+    if (S.screen == SCR_LIST && S.numb_on_cont && numb_cont(&nc)) { /* N3: on the Continue card */
+        h[n++] = (Hint){ICON_BTN_CROSS, NULL, C_BTN_CROSS, nc.kind == NC_PLAYING ? "Now Playing" : "Continue"};
+        if (nc.e) h[n++] = (Hint){ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Options"};
+        h[n++] = (Hint){ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Search"};
+    } else if (S.screen == SCR_LIST) {
+        int v = S.view, sel = S.sel[v];
+        const Entry *e = disp_count(v) ? disp_entry(v, sel) : NULL;
+        if (e)
+            open = v == VIEW_HIDDEN ? "Restore" : v == VIEW_MUSIC && is_playing(e) ? "Now Playing"
+                 : kind_is_music(e->kind) || kind_is_video(e->kind) ? "Play" : kind_is_picture(e->kind) ? "View" : "Start";
+        if (disp_count(v)) h[n++] = (Hint){ICON_BTN_CROSS, NULL, C_BTN_CROSS, open};
+        if (disp_count(v)) h[n++] = (Hint){ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Options"};
+        if (v != VIEW_HIDDEN && v != VIEW_PICTURES) h[n++] = (Hint){ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Search"};
+        if (numb_depth() > 0) h[n++] = (Hint){ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"};
+    } else {
+        h[n++] = (Hint){ICON_BTN_CROSS, NULL, C_BTN_CROSS, S.cat == CAT_UMD && umd_state() == UMD_GAME ? "Start" : open};
+        if (home_has_options() && S.cat != CAT_SETTINGS) /* (its column already lists every section) */
+            h[n++] = (Hint){ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Options"};
+        h[n++] = (Hint){ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Search"};
+    }
+    draw_footer(h, n, 0);
+}
+
+static void draw_numb(const SysStatus *st)
+{
+    /* the column first, sliding (and fading) in when a folder or category changes */
+    int dx = FX_INT(S.col_x.x), adx = dx < 0 ? -dx : dx;
+    int a = adx >= 40 ? 0 : 256 - adx * 256 / 40;
+    gfx_set_opacity(a);
+    if (S.screen == SCR_LIST) numb_list_column(NUMB_COL_X + dx, a);
+    else numb_home_column(NUMB_COL_X + dx);
+    gfx_set_opacity(256);
+    numb_draw_bar();
+    numb_draw_label();
+    draw_status_bar(NULL, 0, st, 0);
+    numb_draw_footer();
 }
 
 void ui_draw(const SysStatus *st)
@@ -2174,6 +3094,10 @@ void ui_draw(const SysStatus *st)
     if (search_covers() || viewer_covers() || video_covers() || settings_covers() || fm_covers() || reader_covers() ||
         web_covers() || np_covers() || sd_covers())
         goto overlays; /* opaque search screen: skip drawing what it hides */
+    if (NUMB) { /* the cross bar in place of the home screen and the lists */
+        draw_numb(st);
+        goto overlays;
+    }
     if (t < 256) {
         gfx_set_opacity(256 - t);
         draw_home(st, -(t * 16 >> 8));

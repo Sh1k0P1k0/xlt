@@ -7,12 +7,12 @@ OBJS = src/main.o src/gamesfile.o src/gfx.o src/ui.o src/input.o src/system.o sr
        src/imgdecode.o src/viewer.o src/id3.o src/music.o src/mp4.o src/readwin.o src/vqueue.o src/video.o src/vnext.o src/mbrowse.o src/h264strip.o src/mpegstub.o \
        src/delpath.o src/fsdel.o src/shotpng.o src/osd.o \
        src/arkcfg.o src/psreg.o src/settings.o \
-       src/textenc.o src/pdf.o src/menu.o src/groups.o src/osk.o src/fileops.o src/reader.o src/fm.o src/preview.o \
+       src/textenc.o src/textedit.o src/pdf.o src/menu.o src/groups.o src/osk.o src/fileops.o src/reader.o src/fm.o src/preview.o \
        src/saver.o src/saverdraw.o src/boot.o src/bootdraw.o src/umd.o src/sfx.o src/theme.o \
        src/url.o src/html.o src/weblay.o src/net.o src/webfetch.o src/web.o src/clockfix.o \
        src/m3u.o src/musicsort.o src/playlists.o src/resume.o src/nowplaying.o src/ui_menus.o src/vplace.o src/srt.o \
        src/sfokey.o src/savedata.o src/pathmap.o src/lrc.o src/safestart.o src/zip.o src/btntest.o src/quitdlg.o src/updparse.o src/update.o src/flac.o src/audiofmt.o src/avi.o src/recjpeg.o src/recorder.o \
-       src/shotplug.o src/castplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o src/eq.o src/homeorder.o src/dumpname.o src/umddump.o src/dumpdlg.o src/gapless.o
+       src/shotplug.o src/castplug.o src/crashplug.o src/netplug.o src/arklauncher.o src/usbsync.o src/fsname.o src/pgf.o src/eq.o src/homeorder.o src/dumpname.o src/umddump.o src/dumpdlg.o src/gapless.o
 
 INCDIR = src build plugin/xltsync
 # -MMD -MP: the compiler lists every header each .o includes (src/*.d), so a changed
@@ -20,6 +20,12 @@ INCDIR = src build plugin/xltsync
 # music.o for mp4.h once: music.c kept the old, smaller Mp4 inside its Aac and
 # mp4_open_audio() overwrote the fields after it (M4A hung the PSP).
 CFLAGS = -O2 -G0 -Wall -Wextra -Wno-unused-parameter -MMD -MP
+# make builds the real XLT. make SIDE=1 builds "XLT nuMB", a test copy for PSP/GAME/NUMB/ that
+# never touches the real XLT (src/side.h, docs/numb.md). Run make clean when switching.
+SIDE ?= 0
+ifeq ($(SIDE),1)
+CFLAGS += -DXLT_SIDE
+endif
 ASFLAGS = $(CFLAGS)
 
 LIBS = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lgif -ljpeg -lpng -lz -llz4 -lm -lpspmpeg -lpspmpegbase -lpspaudiocodec -lpspmp3 -lpspaudio -lpspgu -lpsppower -lpspwlan -lpspsystemctrl_user -lpspkubridge -lpspusb -lpspusbstor -lpspumd -lpthread
@@ -37,7 +43,11 @@ PSP_FW_VERSION = 660
 PSP_LARGE_MEMORY = 1
 
 EXTRA_TARGETS = EBOOT.PBP
+ifeq ($(SIDE),1)
+PSP_EBOOT_TITLE = XLT nuMB
+else
 PSP_EBOOT_TITLE = XLT
+endif
 PSP_EBOOT_ICON = art/ICON0.PNG
 # While XLT is highlighted in the XMB: a screenshot behind it and a silent tour in place of
 # the icon. Made from captures of XLT by tools/make_xmb_media.sh, and kept in git.
@@ -78,6 +88,17 @@ build/xltcast_data.h: plugin/xltcast/xltcast.prx tools/bake_bin.py
 	python3 -I tools/bake_bin.py $< xltcast_prx $@
 src/castplug.o: build/xltcast_data.h
 EXTRA_CLEAN += build/xltcast_data.h plugin/xltcast/xltcast.prx plugin/xltcast/xltcast.elf plugin/xltcast/*.o
+
+# The crash log: a kernel PRX carried inside XLT, which installs it and switches its
+# PLUGINS.TXT lines with Settings > XLT > Crash log (src/crashplug.c).
+XLTCRASH_SRC = plugin/xltcrash/main.c plugin/xltcrash/catch.S plugin/xltcrash/xltcrash.h plugin/xltcrash/Makefile
+plugin/xltcrash/xltcrash.prx: $(XLTCRASH_SRC)
+	$(MAKE) -C plugin/xltcrash
+build/xltcrash_data.h: plugin/xltcrash/xltcrash.prx tools/bake_bin.py
+	@mkdir -p build
+	python3 -I tools/bake_bin.py $< xltcrash_prx $@
+src/crashplug.o: build/xltcrash_data.h
+EXTRA_CLEAN += build/xltcrash_data.h plugin/xltcrash/xltcrash.prx plugin/xltcrash/xltcrash.elf plugin/xltcrash/*.o
 
 # The USB sync link: a kernel PRX carried inside XLT, which writes it to its own folder
 # and loads it while sync is on (src/usbsync.c).
@@ -145,6 +166,7 @@ src/ui.o src/main.o src/cc.o src/fm.o src/reader.o src/menu.o src/osk.o: src/fm.
 src/fm.o src/fileops.o: src/fileops.h
 src/pdf.o src/reader.o: src/pdf.h src/textenc.h src/xio.h
 src/textenc.o: src/textenc.h
+src/textedit.o src/reader.o: src/textedit.h
 src/ui.o src/main.o: src/history.h src/launch.h src/ui.h
 src/ui.o src/opts.o src/cc.o src/search.o: src/ui_internal.h src/search.h src/match.h src/opts.h src/cc.h src/anim.h
 src/opts.o src/cc.o src/main.o src/ark.o src/arktext.o: src/ark.h src/arktext.h src/gamecfg.h src/sysctl.h

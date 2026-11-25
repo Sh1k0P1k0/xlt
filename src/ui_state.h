@@ -71,6 +71,13 @@ typedef struct {
     char toast_buf[96];
     const char *toast;
     int toast_left;
+
+    /* nuMB's cross bar (docs/numb.md, N2): the bar's position (the focused category's place
+     * among the shown ones, Q8) and the column's slide when a folder opens or closes */
+    Spring bar_x, col_x;
+    int numb_was;    /* NUMB at the last frame: the switch is noticed and the state fitted to it */
+    int numb_on_cont; /* N3: the focus is on the Continue card above the column's first row */
+    int numb_set;     /* N4: the Settings section focused in the Settings column */
 } UiState;
 
 #define S g_ui_state

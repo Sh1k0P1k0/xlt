@@ -9,6 +9,8 @@ enum { READER_AUTO, READER_TEXT, READER_HEX, READER_PDF };
 
 void reader_init(const char *app_dir); /* where the reading positions are kept */
 void reader_open(const char *path, int mode);
+/* Opened as text, straight into editing (the file manager's New text file). */
+void reader_open_edit(const char *path);
 int reader_is_open(void);   /* open or still fading */
 int reader_covers(void);    /* fully opaque: nothing underneath needs drawing */
 int reader_input(unsigned int pressed);

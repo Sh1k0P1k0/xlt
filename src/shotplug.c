@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "shotplug.h"
+#include "side.h"
 #include "plugins.h"
 #include "plugtext.h"
 #include "ark.h"
@@ -233,6 +234,7 @@ static void job_pops(void *arg)
 
 void shotplug_install(void)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: the plugins are the real XLT's (side.h) */
     bg_post(job_install, NULL, 0);
     bg_post(job_pops, NULL, 0); /* after it, on the same worker */
 }

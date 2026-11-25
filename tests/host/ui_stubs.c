@@ -58,6 +58,7 @@ void fm_draw(const SysStatus *st) { }
 int fm_input(unsigned int pressed) { return 0; }
 int fm_is_open(void) { return 0; }
 void fm_open(const char *path) { }
+void fm_place_menu(int i) { }
 int fm_place_count(void) { return 0; }
 int fm_place_icon(int i) { return 0; }
 const char * fm_place_name(int i) { return NULL; }
@@ -82,6 +83,7 @@ void osk_draw(void) { }
 int osk_input(unsigned int pressed) { return 0; }
 int osk_is_open(void) { return 0; }
 void osk_open(const char *title, const char *initial, int mode, OskFn fn) { }
+int osk_hold(unsigned int held) { return 0; }
 int osk_step(void) { return 0; }
 int plugins_for(const Entry *e, PlugState *out, int max) { return 0; }
 int plugins_set(const Entry *e, const PlugState *p, int override) { return 0; }
@@ -111,6 +113,7 @@ int search_input(unsigned int pressed) { return 0; }
 int search_is_open(void) { return 0; }
 void search_open(void) { }
 void search_refresh(void) { }
+int search_hold(unsigned int held) { return 0; }
 int search_step(void) { return 0; }
 int settings_covers(void) { return 0; }
 void settings_draw(const SysStatus *st) { }
@@ -118,6 +121,7 @@ int settings_input(unsigned int pressed) { return 0; }
 int settings_is_open(void) { return 0; }
 void settings_open(void) { }
 void settings_open_section(int s) { }
+int settings_section(void) { return 0; }
 int settings_recent(int i) { return 0; }
 int settings_section_icon(int s) { return 0; }
 const char * settings_section_name(int s) { static const char *n[] = {"XLT", "Games", "Plugins", "Power & Display", "Sound & Controls", "Network", "System", "About"}; return n[s & 7]; }
@@ -170,11 +174,12 @@ void web_draw_icon(int id, int x, int y, int w, int h, unsigned int color) /* as
 }
 int web_input(unsigned int pressed) { return 0; }
 int web_is_open(void) { return 0; }
-const char * web_last_title(void) { return NULL; }
+const char * web_last_title(void) { return ""; } /* the real one: "" until a page was opened */
 int web_step(void) { return 0; }
 int web_tile_count(void) { return 0; }
 const char * web_tile_name(int i) { return NULL; }
 void web_tile_open(int i) { }
+void web_tile_menu(int i) { }
 const char * web_tile_sub(int i) { return NULL; }
 
 /* Added by hand: Save data and video positions (the previews have none). */

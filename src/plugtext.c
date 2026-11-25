@@ -232,6 +232,41 @@ int plugtext_set_line(const char *text, int line, const char *runlevel, int on, 
     return len;
 }
 
+int plugtext_switch_in_place(char *text, int line, int on)
+{
+    char *p = text;
+    for (int cur = 0; cur < line; cur++) {
+        p = strchr(p, '\n');
+        if (!p)
+            return -1;
+        p++;
+    }
+    char *nl = strchr(p, '\n');
+    int n = nl ? (int)(nl - p) : (int)strlen(p);
+    Line l;
+    if (!parse(p, n, &l))
+        return -1;
+    if (l.on == on)
+        return 0;
+    char *c1 = memchr(p, ',', n);
+    char *c2 = c1 ? memchr(c1 + 1, ',', n - (int)(c1 + 1 - p)) : NULL;
+    if (!c2)
+        return -1;
+    char *w = c2 + 1, *end = p + n;
+    while (w < end && (*w == ' ' || *w == '\t'))
+        w++;
+    /* "off" <-> "on " (PSPDX writes "on" with a space after it, so both are three bytes) */
+    if (on && end - w >= 3 && !strncasecmp(w, "off", 3)) {
+        memcpy(w, "on ", 3);
+        return 1;
+    }
+    if (!on && end - w >= 3 && !strncasecmp(w, "on", 2) && w[2] == ' ') {
+        memcpy(w, "off", 3);
+        return 1;
+    }
+    return -1;
+}
+
 /* ---------------------------------------------- the in-game screenshot plugin */
 
 static void base_lc(const char *path, char *out, int n)

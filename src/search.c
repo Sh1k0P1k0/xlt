@@ -3,7 +3,8 @@
  * Left: a 7x6 key grid (✕ types, □ deletes, △ adds a space). Right: games and
  * homebrew whose title matches, best first, updated on every key. → past the
  * grid (or R / START) moves to the results; ✕ there starts the game and △
- * opens its options. ○ closes. Like everything else, it only redraws on input.
+ * opens its options. ○ closes. Holding ✕ on a key (not Spc) or holding □
+ * repeats it. Like everything else, it only redraws on input.
  */
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "library.h"
 #include "match.h"
 #include "opts.h"
+#include "input.h"
 
 #define COLS 7
 #define ROWS 6
@@ -51,6 +53,8 @@ static struct {
     Hit hits[MAX_RESULTS];
     int n, total;
     int sel, top;
+    unsigned int rep; /* the held button that repeats (✕ or □), 0 if none */
+    int rep_frames;
 } F;
 
 static void run_query(void)
@@ -101,20 +105,26 @@ void search_open(void)
 int search_is_open(void) { return F.open || F.t.x > 0; }
 int search_covers(void) { return F.open && F.t.x >= FX(1); }
 
-static void type(const char *k)
+/* 0 if the query didn't change (empty, full, or a space it doesn't take). */
+static int type(const char *k)
 {
     sfx_play(!strcmp(k, "Del") ? SFX_DEL : SFX_KEY); /* a soft click per letter, not the ✕ chime */
     int n = strlen(F.q);
     if (!strcmp(k, "Del")) {
-        if (n) F.q[n - 1] = 0;
+        if (!n)
+            return 0;
+        F.q[n - 1] = 0;
     } else if (n < MAX_QUERY) {
         const char *c = !strcmp(k, "Spc") ? " " : k;
         if (*c == ' ' && (n == 0 || F.q[n - 1] == ' '))
-            return; /* no leading or double spaces */
+            return 0; /* no leading or double spaces */
         F.q[n] = *c;
         F.q[n + 1] = 0;
+    } else {
+        return 0;
     }
     run_query();
+    return 1;
 }
 
 static void select_hit(int i)
@@ -136,13 +146,16 @@ int search_input(unsigned int p)
 {
     if (!F.open)
         return 0;
+    F.rep = 0; /* any new press ends a repeat */
+    F.rep_frames = 0;
     if (p & PSP_CTRL_CIRCLE) {
         F.open = 0;
         spring_to(&F.t, 0);
         return 1;
     }
     if (p & PSP_CTRL_SQUARE) { /* delete works from anywhere */
-        type("Del");
+        if (type("Del"))
+            F.rep = PSP_CTRL_SQUARE;
         return 1;
     }
     if (F.in_results) {
@@ -162,10 +175,27 @@ int search_input(unsigned int p)
     } else if (p & (PSP_CTRL_RTRIGGER | PSP_CTRL_START) && F.n) {
         F.in_results = 1;
     } else if (p & PSP_CTRL_CROSS) {
-        type(s_keys[F.row * COLS + F.col]);
+        const char *k = s_keys[F.row * COLS + F.col];
+        if (type(k) && strcmp(k, "Spc"))
+            F.rep = PSP_CTRL_CROSS; /* letters and Del repeat while held */
     } else if (p & PSP_CTRL_TRIANGLE) {
         type("Spc");
     }
+    return 1;
+}
+
+int search_hold(unsigned int held)
+{
+    if (!F.rep)
+        return 0;
+    if (!F.open || F.in_results || !(held & F.rep)) {
+        F.rep = 0;
+        return 0;
+    }
+    if (!input_repeats(++F.rep_frames))
+        return 0;
+    if (!type(F.rep == PSP_CTRL_SQUARE ? "Del" : s_keys[F.row * COLS + F.col]))
+        F.rep = 0; /* empty or full: stop */
     return 1;
 }
 
@@ -249,10 +279,10 @@ void search_draw(const SysStatus *st)
         {-1, "L", 0, "Keys"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
-    gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, 248, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     if (F.in_results)
-        ui_draw_hints(res_hints, COUNT(res_hints), SCREEN_W / 2, 253);
+        ui_draw_screen_footer(res_hints, COUNT(res_hints), 253, 1);
     else
-        ui_draw_hints(keys_hints, COUNT(keys_hints), SCREEN_W / 2, 253);
+        ui_draw_screen_footer(keys_hints, COUNT(keys_hints), 253, 1);
     gfx_set_opacity(256);
 }

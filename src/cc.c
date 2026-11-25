@@ -42,6 +42,7 @@
 #define SLIM_H 30
 #define ROW_H 22
 #define ROW_STEP 26 /* row height plus the gap */
+#define CC_INSET 4  /* nuMB: the floating quick menu's gap to the screen's edges */
 #define MUSIC_Y 90
 #define TILE_W 80
 #define TILE_H 48
@@ -490,9 +491,10 @@ void cc_usb_draw(const SysStatus *st)
     gfx_text_center(FONT_SMALL, cx, ty, on ? "Eject it on the computer before you leave USB mode."
                                            : "Waiting for the computer...", C_MUTED);
 
-    gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, 248, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     static const Hint hints[] = {{ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Exit USB mode"}};
-    ui_draw_hints(hints, COUNT(hints), cx, 253);
+    if (NUMB) ui_draw_screen_footer(hints, COUNT(hints), 253, 0); /* USB mode takes every button */
+    else ui_draw_hints(hints, COUNT(hints), cx, 253);
     gfx_set_opacity(256);
 }
 
@@ -688,7 +690,7 @@ static void draw_power(int ty)
     gfx_text_center(FONT_SMALL, SCREEN_W / 2, cy + PD_CARD_BIG / 2 + 30, about[C.power_col], C_MUTED);
     gfx_rect(PD_X + 14, PD_Y + PD_H - 30, PD_W - 28, 1, C_LINE);
     static const Hint hints[] = {
-        {-1, "<-/->", 0, "Choose"},
+        {-1, KEY_LR, 0, "Choose"},
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "OK"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Cancel"},
     };
@@ -704,21 +706,31 @@ void cc_draw(const SysStatus *st)
     if (t > 256) t = 256;
     ui_dim(t);
     const int sheet_h = sheet_height();
-    const int y0 = -sheet_h + ((sheet_h * t) >> 8);
-    /* A strip this thin under the sheet would only show cut-off text from the
-     * screen behind it: run the sheet to the bottom edge instead. */
-    const int bg_h = SCREEN_H - sheet_h < 24 ? SCREEN_H : sheet_h;
-    gfx_rrect(0, y0 - 12, SCREEN_W, bg_h + 12, 12, C_SURFACE);
+    int y0 = -sheet_h + ((sheet_h * t) >> 8);
+    if (NUMB) { /* nuMB's quick menu floats: a rounded card a few pixels in, with a hairline */
+        y0 += (CC_INSET * t) >> 8;
+        gfx_rrect(CC_INSET, y0, SCREEN_W - 2 * CC_INSET, sheet_h, 12, C_LINE);
+        gfx_rrect(CC_INSET + 1, y0 + 1, SCREEN_W - 2 * CC_INSET - 2, sheet_h - 2, 11, C_SURFACE);
+    } else {
+        /* A strip this thin under the sheet would only show cut-off text from the
+         * screen behind it: run the sheet to the bottom edge instead. */
+        const int bg_h = SCREEN_H - sheet_h < 24 ? SCREEN_H : sheet_h;
+        gfx_rrect(0, y0 - 12, SCREEN_W, bg_h + 12, 12, C_SURFACE);
+    }
     int fh = gfx_line_h(FONT_SMALL);
 
     /* header */
     char buf[40];
-    gfx_text(FONT_BOLD, TILES_X, y0 + 8, "Control center", C_TEXT);
+    gfx_text(FONT_BOLD, TILES_X, y0 + 8, NUMB ? "Quick menu" : "Control center", C_TEXT);
     format_clock(buf, sizeof(buf), st->hour, st->minute);
     int x = SCREEN_W - TILES_X - gfx_text_width(FONT_SMALL, buf);
     gfx_text(FONT_SMALL, x, y0 + 10, buf, C_TEXT);
     if (st->battery >= 0) {
-        snprintf(buf, sizeof(buf), "%d%%", st->battery);
+        char life[16] = "";
+        if (NUMB && st->life_min > 0) /* nuMB: the time left too, as in its top bar */
+            format_life(life, sizeof(life), st->life_min);
+        if (life[0]) snprintf(buf, sizeof(buf), "%d%%" DOT "%s", st->battery, life);
+        else snprintf(buf, sizeof(buf), "%d%%", st->battery);
         x -= 10 + gfx_text_width(FONT_SMALL, buf);
         gfx_text(FONT_SMALL, x, y0 + 10, buf, C_MUTED);
         x -= 28;
@@ -771,7 +783,7 @@ void cc_draw(const SysStatus *st)
 
     /* hints for the focused row */
     static const Hint power_hints[] = {
-        {-1, "<-/->", 0, "Choose"},
+        {-1, KEY_LR, 0, "Choose"},
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "OK"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
@@ -781,14 +793,14 @@ void cc_draw(const SysStatus *st)
     };
     static const Hint play_hints[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Pause"},
-        {-1, "<-/->", 0, "Track"},
+        {-1, KEY_LR, 0, "Track"},
         {-1, "L/R", 0, "Seek"},
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Full"},
         {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Sleep"},
     };
     static const Hint resume_hints[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Play"},
-        {-1, "<-/->", 0, "Track"},
+        {-1, KEY_LR, 0, "Track"},
         {-1, "L/R", 0, "Seek"},
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Full"},
         {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Sleep"},
@@ -804,17 +816,17 @@ void cc_draw(const SysStatus *st)
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Close"},
     };
     static const Hint vol_hints[] = {
-        {-1, "<-/->", 0, "Adjust"},
+        {-1, KEY_LR, 0, "Adjust"},
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Mute"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Close"},
     };
     static const Hint unmute_hints[] = {
-        {-1, "<-/->", 0, "Adjust"},
+        {-1, KEY_LR, 0, "Adjust"},
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Unmute"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Close"},
     };
     static const Hint light_hints[] = {
-        {-1, "<-/->", 0, "Adjust"},
+        {-1, KEY_LR, 0, "Adjust"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Close"},
     };
     static const Hint close_hints[] = {

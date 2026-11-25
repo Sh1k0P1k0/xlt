@@ -43,7 +43,7 @@ CJK_EXT = ([chr(c) for c in range(0x3041, 0x3097)] + [chr(c) for c in range(0x30
            + [chr(c) for c in range(0x30A1, 0x30FB)] + [chr(c) for c in range(0x30FB, 0x30FF)]  # katakana
            + [chr(c) for c in range(0xFF61, 0xFFA0)]                                           # half-width kana
            + list("、。〃々〆〇〈〉《》「」『』【】〒〓〔〕〜")
-           + list("←↑→↓⇒⇔※○●◎◇◆□■△▲▽▼☆★♀♂♪♭♯♥♡♦♣♠✓✔∞"))
+           + list("←↑→↓⇒⇔※○●◎◇◆□■△▲▶▽▼◀☆★♀♂♪♭♯♥♡♦♣♠✓✔∞"))
 CJK_SET = set(CJK_EXT)
 EXT_CHARS = sorted(set(LATIN_EXT + CJK_EXT))
 EXT_W, EXT_H = 512, 512

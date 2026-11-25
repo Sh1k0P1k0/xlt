@@ -468,6 +468,14 @@ static int dev_present(const char *dev)
     return 1;
 }
 
+/* Free kernel memory (partition 1): when it runs short, the PSP refuses to make a
+ * file with a two-byte Shift-JIS name (80010016) while ASCII names still work. */
+static void log_kmem(const char *when)
+{
+    LOG("kernel memory %s: %u KB free, largest block %u KB", when,
+        (unsigned)sceKernelPartitionTotalFreeMemSize(1) / 1024, (unsigned)sceKernelPartitionMaxFreeMemSize(1) / 1024);
+}
+
 static int cmd_hello(const XltsHeader *c)
 {
     XltsHello *h = (XltsHello *)s_buf;
@@ -1050,6 +1058,7 @@ static int cmd_put(const XltsHeader *c)
     SceUID fd = sceIoOpen(s_put.part, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd < 0) {
         LOG("put %s: open %08x", s_put.part, (unsigned)fd);
+        log_kmem("then");
         return reply(c, io_status(fd), 0, fd);
     }
     s_cur_fd = fd;
@@ -1189,6 +1198,7 @@ static int session(void)
     static XltsHeader c __attribute__((aligned(64)));
     static unsigned char hbuf[512] __attribute__((aligned(64)));
     LOG("attached, %s speed", s_speed == 2 ? "high" : "full");
+    log_kmem("at attach");
     for (;;) {
         log_controls(&s_logged);
         int n = recv_into(hbuf, sizeof(hbuf), T_IDLE);
@@ -1329,6 +1339,7 @@ static int drv_start(int size, void *p)
         return -1;
     }
     LOG("driver started, buffer %d bytes", s_buf_size);
+    log_kmem("at start");
     return 0;
 }
 

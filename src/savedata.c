@@ -578,7 +578,7 @@ void sd_draw(const SysStatus *st)
         }
     }
 
-    gfx_rect(0, 248, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, 248, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     if (J.kind != J_NONE) { /* the job, instead of the hints */
         FopStatus fs;
         fop_status(&fs);
@@ -596,7 +596,7 @@ void sd_draw(const SysStatus *st)
             {-1, "L/R", 0, "Saves / Backups"},
             {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
         };
-        ui_draw_hints(h, COUNT(h), SCREEN_W / 2, 253);
+        ui_draw_screen_footer(h, COUNT(h), 253, 1);
     }
     gfx_set_opacity(256);
 }

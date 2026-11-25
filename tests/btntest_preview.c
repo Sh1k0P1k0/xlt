@@ -41,6 +41,7 @@ void ui_draw_hints(const Hint *hints, int n, int cx, int y)
         x = gfx_text(FONT_SMALL, x, y, h->label, C_MUTED) + 16;
     }
 }
+#include "screen_footer.h" /* ui_draw_screen_footer, as ui.c draws it (nuMB N5) */
 
 #include "../src/btntest.c"
 

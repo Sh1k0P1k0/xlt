@@ -23,6 +23,7 @@
 #include "thumbs.h"
 #include "video.h"
 #include "umd.h"
+#include "side.h"
 
 #define REST_FRAMES 36 /* about 0.6 s, close to the XMB's delay */
 #define GRAB_WAIT 180  /* at most ~3 s of still frames for other tiles before the live preview */
@@ -233,7 +234,7 @@ static int s_nopreview = -1;
 static void start(void)
 {
     if (s_nopreview < 0) {
-        SceUID fd = sceIoOpen("ms0:/PSP/GAME/XLT/cache/nopreview", PSP_O_RDONLY, 0);
+        SceUID fd = sceIoOpen(XLT_HOME_DIR "cache/nopreview", PSP_O_RDONLY, 0);
         s_nopreview = fd >= 0;
         if (fd >= 0) sceIoClose(fd);
         if (s_nopreview) video_note("previews off: cache/nopreview exists");

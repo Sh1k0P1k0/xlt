@@ -15,6 +15,7 @@
 #include "fsname.h"
 #include "audiofmt.h"
 #include "web.h"
+#include "usbsync.h"
 #include "webfetch.h"
 #include "ui_internal.h"
 #include "anim.h"
@@ -774,7 +775,8 @@ static void list_cb(int id, int dir)
     const Place *p = id >= L_HISTORY ? &s_vh[id - L_HISTORY] : &s_bm[id - L_BOOKMARK];
     char url[URL_MAX];
     snprintf(url, sizeof(url), "%s", p->url);
-    go(url, NULL, 1);
+    if (!W.open) web_open(url); /* picked from the home row's △ menu: the browser comes up */
+    else go(url, NULL, 1);
 }
 
 static void open_list(int history)
@@ -906,6 +908,10 @@ static void close_browser(void)
 {
     W.open = 0;
     spring_to(&W.t, 0);
+    /* Over USBNet the connection holds the cable, and USB sync waits for it (usbsync_hold):
+     * the browser closed, the cable goes back to sync. With Wi-Fi it stays up, for a quick return. */
+    if (usbsync_held())
+        wf_disconnect();
 }
 
 static void tab_park(TabSave *t)
@@ -1134,8 +1140,7 @@ static void menu_cb(int id, int dir)
         return;
     case M_CLOSE:
         menu_close();
-        W.open = 0;
-        spring_to(&W.t, 0);
+        close_browser();
         return;
     }
     int n;
@@ -1232,13 +1237,18 @@ void web_init(const char *app_dir)
     W.edit_ctrl = W.menu_ctrl = -1;
 }
 
-void web_open(const char *url)
+static void show_browser(void)
 {
     set_layout();
     if (!W.open) {
         W.open = 1;
         spring_to(&W.t, FX(1));
     }
+}
+
+void web_open(const char *url)
+{
+    show_browser();
     if (url) {
         go(url, NULL, 1);
     } else if (!W.page && !W.loading) {
@@ -1249,11 +1259,7 @@ void web_open(const char *url)
 
 void web_open_search(void)
 {
-    set_layout();
-    if (!W.open) {
-        W.open = 1;
-        spring_to(&W.t, FX(1));
-    }
+    show_browser();
     open_address(1);
 }
 
@@ -1879,7 +1885,7 @@ void web_draw(const SysStatus *st)
         gfx_text_fit(FONT_SMALL, x + 8, FOOTER_Y - 23, w - 16, line, C_TEXT);
     }
     gfx_rect(0, FOOTER_Y, SCREEN_W, SCREEN_H - FOOTER_Y, C_BG);
-    gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE);
+    if (!NUMB) gfx_rect(0, FOOTER_Y, SCREEN_W, 1, C_LINE); /* nuMB's hint row has no line (N5) */
     static const Hint hints[] = {
         {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Open"},
         {ICON_BTN_SQUARE, NULL, C_BTN_SQUARE, "Address"},
@@ -1887,7 +1893,7 @@ void web_draw(const SysStatus *st)
         {ICON_BTN_TRIANGLE, NULL, C_BTN_TRIANGLE, "Menu"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
     };
-    ui_draw_hints(hints, COUNT(hints), SCREEN_W / 2, FOOTER_Y + 5);
+    ui_draw_screen_footer(hints, COUNT(hints), FOOTER_Y + 5, 1);
     gfx_set_opacity(256);
 }
 
@@ -1922,4 +1928,83 @@ void web_tile_open(int i)
     }
     if (i == 0) web_open_search();
     else web_open(s_bm[i - 1].url);
+}
+
+/* The home row's △: what the tile opens, a new tab, its bookmark, the lists. */
+enum { T_OPEN = 1, T_NEW_TAB, T_FORGET, T_BOOKMARKS, T_HISTORY };
+static int s_tile_menu; /* the tile it is for */
+
+static void tile_menu_cb(int id, int dir)
+{
+    (void)dir;
+    int i = s_tile_menu, bm = i >= 1 && i < web_tile_count();
+    switch (id) {
+    case T_OPEN: menu_close(); web_tile_open(i); return;
+    case T_NEW_TAB: {
+        menu_close();
+        char url[URL_MAX] = "";
+        if (bm) snprintf(url, sizeof(url), "%s", s_bm[i - 1].url);
+        int fresh = !W.page && !W.loading && W.nhist == 0; /* the tab in use is empty: it takes it */
+        show_browser();
+        if (fresh) {
+            if (url[0]) go(url, NULL, 1);
+            else open_address(1);
+        } else {
+            tab_new(url[0] ? url : NULL);
+        }
+        return;
+    }
+    case T_FORGET:
+        menu_close();
+        if (bm) {
+            place_remove(s_bm, &s_nbm, i - 1);
+            save_list(s_bm_path, s_bm, s_nbm);
+            ui_toast("Bookmark removed");
+        }
+        return;
+    case T_BOOKMARKS: menu_close(); open_list(0); return;
+    case T_HISTORY: menu_close(); open_list(1); return;
+    }
+}
+
+void web_tile_menu(int i)
+{
+    int n = web_tile_count();
+    if (i < 0 || i > n) i = n;
+    s_tile_menu = i;
+    MenuItem it[6];
+    int k = 0;
+    memset(it, 0, sizeof(it));
+    const char *title, *sub = NULL;
+    if (i == 0) {
+        title = "Search";
+        snprintf(it[k].label, sizeof(it[k].label), "Search the web");
+        it[k++].id = T_OPEN;
+    } else if (i < n) {
+        title = web_tile_name(i);
+        sub = web_tile_sub(i);
+        snprintf(it[k].label, sizeof(it[k].label), "Open");
+        it[k++].id = T_OPEN;
+        snprintf(it[k].label, sizeof(it[k].label), "Open in a new tab");
+        it[k++].id = T_NEW_TAB;
+        snprintf(it[k].label, sizeof(it[k].label), "Remove the bookmark");
+        it[k].danger = 1;
+        it[k++].id = T_FORGET;
+    } else {
+        const char *last = web_last_title();
+        title = "Browser";
+        sub = last[0] ? last : NULL;
+        snprintf(it[k].label, sizeof(it[k].label), "%s", last[0] ? "Continue" : "Type an address");
+        it[k++].id = T_OPEN;
+        if (last[0]) {
+            snprintf(it[k].label, sizeof(it[k].label), "New tab");
+            it[k++].id = T_NEW_TAB;
+        }
+    }
+    snprintf(it[k].label, sizeof(it[k].label), "Bookmarks");
+    it[k].gap = 1;
+    it[k++].id = T_BOOKMARKS;
+    snprintf(it[k].label, sizeof(it[k].label), "History");
+    it[k++].id = T_HISTORY;
+    menu_open(title, sub, it, k, tile_menu_cb);
 }

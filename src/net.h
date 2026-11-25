@@ -33,12 +33,15 @@ int net_profiles(int *ids, char (*names)[64], int max);
 int net_connect(int id, volatile int *cancel);
 
 int net_state(void);           /* NET_*, safe from any thread */
+int net_running(void);         /* the stack is started (the WLAN module is in use) */
 const char *net_step(void);    /* the start-up call running now (shown while starting) */
 const char *net_error(void);   /* why the last net_connect failed */
 const char *net_profile_name(void); /* the connection being used / last used */
 int net_is_up(void);           /* connected right now (asks the PSP) */
 void net_disconnect(void);
-/* Before quitting or starting a game: drops the connection. */
+/* Drops the connection and stops the stack, unloading the modules (the WLAN module is
+ * then off). Before quitting or starting a game, when the browser closes, and after
+ * 2 minutes with no network use (webfetch.c). Any thread; net_connect starts it again. */
 void net_shutdown(void);
 
 /* The connection to use first, remembered across starts (cache/web.txt). */

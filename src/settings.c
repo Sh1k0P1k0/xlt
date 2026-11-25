@@ -55,6 +55,9 @@
 #include "btntest.h"
 #include "usbsync.h"
 #include "castplug.h"
+#include "crashplug.h"
+#include "netplug.h"
+#include "side.h"
 
 #define FOOTER_Y 248
 #define TOP_Y 32
@@ -67,12 +70,19 @@
 #define VISIBLE 7                         /* item rows on screen */
 #define DESC_Y (TOP_Y + VISIBLE * ROW + 8) /* description under the rows */
 #define MAX_ITEMS 40
+/* nuMB (docs/numb.md, N4): the section's settings as a column under the cross bar; the
+ * focused one grows to show its description */
+/* the focused card: its name, then two lines of description */
+static int numb_card_h(void) { return 6 + gfx_line_h(FONT_BOLD) + 2 + 2 * gfx_line_h(FONT_SMALL) + 6; }
+#define NUMB_SET_ROWS (1 + (NUMB_COL_BOTTOM - NUMB_COL_Y - numb_card_h()) / NUMB_ROW_H)
+
+static int visible_rows(void) { return NUMB ? NUMB_SET_ROWS : VISIBLE; }
 #define EXTRA_CAP (12 * 1024)
 
 /* ------------------------------------------------------------------ model */
 
 enum { SRC_ARK, SRC_REG, SRC_PLUG, SRC_XLT, SRC_ACTION, SRC_INFO };
-enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ, X_XFADE, X_CAST };
+enum { X_DRIVER, X_SAVER, X_SOUNDS, X_THEME, X_AUTOPLAY, X_LEVEL, X_BATTERY, X_USBSYNC, X_EQ, X_XFADE, X_CAST, X_UI, X_NET, X_CRASH };
 static const char *const O_LEVEL[LEVEL_COUNT] = {"Off", "By song", "By album"};
 enum { A_REMOVED, A_RESCAN, A_SAVER, A_CLEAR_HISTORY, A_UPDATE, A_BTNTEST, A_ARRANGE, A_SPACE };
 static int s_clear_armed; /* ✕ once on Clear play history: the next ✕ clears */
@@ -205,7 +215,7 @@ static struct {
     int nplug;
     int reg[NREG], reg_ok[NREG];
     char nick[64];
-    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0, cast0, eq0, xfade0;
+    int driver0, saver0, sounds0, theme0, autoplay0, level0, battery0, usbsync0, cast0, net0, crash0, eq0, xfade0;
     int recent_dirty;
     Spring knob;     /* the focused switch's knob, Q8: 0 off .. 256 on */
     int knob_id;     /* which row it belongs to, -1 none */
@@ -404,12 +414,15 @@ static void build(void)
     c->name = SECTIONS[C_XLT].name;
     c->note = "How XLT looks, starts and finds your games.";
     add(c, "Theme", "The colours of XLT. Changes at once, so you can look before you leave.", SRC_XLT, X_THEME);
+    add(c, "Interface", "Classic, or nMB: a cross bar like the PSP's own menu. Changes at once.",
+        SRC_XLT, X_UI);
     add(c, "Play the next video", "When a video ends, the next one in its folder starts after a few seconds "
         "(cancel with Circle).", SRC_XLT, X_AUTOPLAY);
     add(c, "Arrange home menu", "Puts the home menu's cards in the order you like: L/R pick a card, Left/Right "
         "move it, Cross saves. A UMD always comes first.", SRC_ACTION, A_ARRANGE);
-    ark_item(c, AK_LAUNCHER, "Start XLT at boot",
-             "ARK opens XLT instead of the XMB when the PSP starts.", O_OFFON, 2);
+    if (!XLT_SIDE_BUILD) /* nuMB: ARK's launcher is the real XLT's (side.h) */
+        ark_item(c, AK_LAUNCHER, "Start XLT at boot",
+                 "ARK opens XLT instead of the XMB when the PSP starts.", O_OFFON, 2);
     Item *it = add(c, "Default ISO driver",
                    "Used for disc images without their own choice (Triangle on a game sets one).", SRC_XLT, X_DRIVER);
     if (it) { it->opts = O_DRIVER; it->nopts = 3; }
@@ -427,10 +440,14 @@ static void build(void)
     add(c, "USB sync", "With the cable in, the PC can send files while you use XLT (for now with "
         "tools/xltlink.py). The library updates by itself. USB mode still works: sync pauses meanwhile.",
         SRC_XLT, X_USBSYNC);
-    if (ark)
+    if (ark && !XLT_SIDE_BUILD) /* nuMB: the plugins are the real XLT's (side.h) */
         add(c, "XLT Cast", "Shows your game on the PC, with sound (XLT Tool's Cast). In a game, cable in: "
             "L+R+SELECT starts or stops it, HOME stops it.",
             SRC_XLT, X_CAST);
+    if (ark && !XLT_SIDE_BUILD)
+        add(c, "Crash log", "Writes SEPLUGINS/xltcrash.log when a game, an app or XLT crashes. Nothing is "
+            "written otherwise.",
+            SRC_XLT, X_CRASH);
 
     c = &s_cats[C_GAMES];
     c->name = SECTIONS[C_GAMES].name;
@@ -508,7 +525,10 @@ static void build(void)
 
     c = &s_cats[C_NETWORK];
     c->name = SECTIONS[C_NETWORK].name;
-    c->note = "Wi-Fi for games.";
+    c->note = "Wi-Fi, or the USB cable, for games and XLT.";
+    if (ark && !XLT_SIDE_BUILD)
+        add(c, "Internet over USB", "Internet through the cable with USBNet (by chriopter), XLT Tool as the "
+            "router: connect with \"Hi-Speed USB\". XLT Tool brings USBNet. From XLT's next start.", SRC_XLT, X_NET);
     ark_item(c, AK_WPA2, "WPA2 for Wi-Fi", "Lets games join WPA2 networks (the PSP only knows WPA).", O_OFFON, 2);
     reg_items(c, C_NETWORK);
     ark_item(c, AK_HIDEMAC, "Hide MAC address", "Shows a made-up MAC address instead of the PSP's own.",
@@ -537,8 +557,9 @@ static void build(void)
     if (S.nick[0])
         info_item(c, "Nickname", S.nick);
     info_item(c, "Launcher", "XLT " XLT_VERSION);
-    add(c, "Check for updates", "Asks GitHub for a newer XLT over Wi-Fi (the connection used last). Nothing "
-        "is installed until you choose Install.", SRC_ACTION, A_UPDATE);
+    if (!XLT_SIDE_BUILD) /* nuMB: no self-update (side.h) */
+        add(c, "Check for updates", "Asks GitHub for a newer XLT over Wi-Fi (the connection used last). Nothing "
+            "is installed until you choose Install.", SRC_ACTION, A_UPDATE);
     storage_items(c);
 
     for (int i = 0; i < C_COUNT; i++)
@@ -614,6 +635,8 @@ static void item_value(const Item *it, char *out, int n)
     case SRC_XLT:
         if (it->key == X_THEME)
             snprintf(out, n, "%s", g_th->name);
+        else if (it->key == X_UI)
+            snprintf(out, n, "%s", UI_MODE_NAMES[NUMB ? UI_NUMB : UI_XLT]);
         else if (it->key == X_SOUNDS)
             snprintf(out, n, "%s", g_cfg.ui_sounds ? "On" : "Off");
         else if (it->key == X_AUTOPLAY)
@@ -622,6 +645,10 @@ static void item_value(const Item *it, char *out, int n)
             snprintf(out, n, "%s", g_cfg.battery_pct ? "On" : "Off");
         else if (it->key == X_CAST)
             snprintf(out, n, "%s", g_cfg.cast ? "On" : "Off");
+        else if (it->key == X_NET)
+            snprintf(out, n, "%s", g_cfg.usb_net ? "On" : "Off");
+        else if (it->key == X_CRASH)
+            snprintf(out, n, "%s", g_cfg.crash_log ? "On" : "Off");
         else if (it->key == X_USBSYNC)
             snprintf(out, n, "%s", !g_cfg.usb_sync ? "Off" : usbsync_talking() ? "On, PC connected"
                                    : usbsync_attached() ? "On, cable in" : "On");
@@ -641,7 +668,7 @@ static void item_value(const Item *it, char *out, int n)
         if (it->key == A_UPDATE) { /* what the last check found */
             int k = update_known();
             snprintf(out, n, "%s", k == 1 ? "Up to date" : k == 3 ? "Restart to finish" : "");
-            if (k == 2) snprintf(out, n, "%s available", update_release()->version);
+            if (k == 2) snprintf(out, n, update_from_usb() ? "%s from XLT Tool" : "%s available", update_release()->version);
             break;
         }
         /* fall through */
@@ -668,6 +695,10 @@ static int switch_state(const Item *it)
         return g_cfg.usb_sync;
     if (it->src == SRC_XLT && it->key == X_CAST)
         return g_cfg.cast;
+    if (it->src == SRC_XLT && it->key == X_NET)
+        return g_cfg.usb_net;
+    if (it->src == SRC_XLT && it->key == X_CRASH)
+        return g_cfg.crash_log;
     return -1;
 }
 
@@ -705,7 +736,9 @@ static void change(Item *it, int dir)
         if (it->key == X_THEME) {
             g_cfg.theme = (g_cfg.theme + dir + THEME_COUNT) % THEME_COUNT;
             theme_set(g_cfg.theme); /* everything is drawn with it from the next frame */
-        } else if (it->key == X_SOUNDS)
+        } else if (it->key == X_UI)
+            g_cfg.ui_mode = NUMB ? UI_XLT : UI_NUMB; /* the same: from the next frame */
+        else if (it->key == X_SOUNDS)
             g_cfg.ui_sounds = !g_cfg.ui_sounds;
         else if (it->key == X_AUTOPLAY)
             g_cfg.autoplay = !g_cfg.autoplay;
@@ -725,6 +758,15 @@ static void change(Item *it, int dir)
         else if (it->key == X_CAST) {
             g_cfg.cast = !g_cfg.cast;
             castplug_apply(g_cfg.cast); /* plugin and PLUGINS.TXT line, on the worker */
+        }
+        else if (it->key == X_CRASH) {
+            g_cfg.crash_log = !g_cfg.crash_log;
+            crashplug_apply(g_cfg.crash_log); /* plugin and PLUGINS.TXT lines, on the worker */
+        }
+        else if (it->key == X_NET) {
+            g_cfg.usb_net = !g_cfg.usb_net;
+            netplug_apply(g_cfg.usb_net); /* plugin and PLUGINS.TXT lines, on the worker */
+            ui_toast(g_cfg.usb_net ? "Internet over USB: from XLT's next start" : "Internet over USB: off from XLT's next start");
         }
         else if (it->key == X_EQ) /* the same: the player notices at its next block */
             g_cfg.eq_preset = (g_cfg.eq_preset + dir + EQ_PRESETS) % EQ_PRESETS;
@@ -787,6 +829,8 @@ void settings_open(void)
     S.battery0 = g_cfg.battery_pct;
     S.usbsync0 = g_cfg.usb_sync;
     S.cast0 = g_cfg.cast;
+    S.net0 = g_cfg.usb_net;
+    S.crash0 = g_cfg.crash_log;
     if (!s_tz_labels[0])
         for (int i = 0; i < TZ_COUNT; i++) {
             int m = V_TZ[i] < 0 ? -V_TZ[i] : V_TZ[i];
@@ -826,7 +870,7 @@ static void close_settings(void)
     }
     if (g_cfg.iso_driver != S.driver0 || g_cfg.saver_min != S.saver0 || g_cfg.ui_sounds != S.sounds0 ||
         g_cfg.theme != S.theme0 || g_cfg.autoplay != S.autoplay0 || g_cfg.level != S.level0 ||
-        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || g_cfg.cast != S.cast0 || g_cfg.eq_preset != S.eq0 ||
+        g_cfg.battery_pct != S.battery0 || g_cfg.usb_sync != S.usbsync0 || g_cfg.cast != S.cast0 || g_cfg.usb_net != S.net0 || g_cfg.crash_log != S.crash0 || g_cfg.eq_preset != S.eq0 ||
         g_cfg.crossfade != S.xfade0 || S.recent_dirty)
         bg_post(job_save_ini, NULL, 0);
     S.recent_dirty = 0;
@@ -843,6 +887,7 @@ void settings_open_section(int c)
 }
 
 int settings_is_open(void) { return S.open || S.t.x > 0; }
+int settings_section(void) { return S.cat; }
 int settings_covers(void) { return S.open && S.t.x >= FX(1); }
 
 /* ------------------------------------------------------------------ input */
@@ -857,7 +902,7 @@ static void select_item(int i)
     if (i != S.sel[S.cat]) sfx_play(SFX_MOVE);
     S.sel[S.cat] = i;
     if (i < S.top[S.cat]) S.top[S.cat] = i;
-    if (i >= S.top[S.cat] + VISIBLE) S.top[S.cat] = i - VISIBLE + 1;
+    if (i >= S.top[S.cat] + visible_rows()) S.top[S.cat] = i - visible_rows() + 1;
 }
 
 static void upd_open(void);
@@ -1053,8 +1098,13 @@ static void draw_update(int t)
     case UP_AVAILABLE: {
         char sz[16] = "";
         if (r->zip_size > 0) upd_size(sz, sizeof(sz), r->zip_size);
-        snprintf(title, sizeof(title), "XLT %s is available", r->version);
-        snprintf(line, sizeof(line), "You have %s%s%s", XLT_VERSION, sz[0] ? DOT : "", sz);
+        if (update_from_usb()) {
+            snprintf(title, sizeof(title), "XLT %s from XLT Tool", r->version);
+            snprintf(line, sizeof(line), "You have %s%s%s" DOT "sent over USB", XLT_VERSION, sz[0] ? DOT : "", sz);
+        } else {
+            snprintf(title, sizeof(title), "XLT %s is available", r->version);
+            snprintf(line, sizeof(line), "You have %s%s%s", XLT_VERSION, sz[0] ? DOT : "", sz);
+        }
         break;
     }
     case UP_DOWNLOADING:
@@ -1133,6 +1183,15 @@ static void draw_update(int t)
     gfx_set_opacity(t);
 }
 
+/* XLT Tool sent an update (update_usb_look): Settings > About with its dialog. */
+void settings_offer_update(void)
+{
+    if (!S.open) settings_open_section(C_ABOUT);
+    else { S.cat = C_ABOUT; S.col = s_cats[C_ABOUT].n ? 1 : 0; }
+    upd_wrap();
+    if (!s_upd_open) upd_open();
+}
+
 static int s_space;
 static void space_scan(void);
 static void space_close(void);
@@ -1180,9 +1239,9 @@ int settings_input(unsigned int p)
     Item *it = &c->items[S.sel[S.cat]];
     if (p & PSP_CTRL_UP) select_item(S.sel[S.cat] - 1);
     else if (p & PSP_CTRL_DOWN) select_item(S.sel[S.cat] + 1);
-    else if (p & PSP_CTRL_CIRCLE) S.col = 0;
+    else if (p & PSP_CTRL_CIRCLE) { if (NUMB) close_settings(); else S.col = 0; } /* nuMB: back to the bar */
     else if (p & PSP_CTRL_LEFT) {
-        if (it->src == SRC_INFO || it->src == SRC_ACTION) S.col = 0;
+        if (it->src == SRC_INFO || it->src == SRC_ACTION) { if (!NUMB) S.col = 0; }
         else if (switch_state(it) != 0) change(it, -1); /* a switch: left is off */
     } else if (p & PSP_CTRL_RIGHT) {
         if (it->src != SRC_INFO && it->src != SRC_ACTION && switch_state(it) != 1) change(it, 1); /* right is on */
@@ -1310,6 +1369,8 @@ int settings_step(void)
         build(); /* plugins and PSP settings are known now */
         if (S.col == 1 && !s_cats[S.cat].n)
             S.col = 0;
+        if (NUMB && S.col == 0 && s_cats[S.cat].n) /* nuMB has no list of sections here: straight in */
+            S.col = 1;
         dirty = 1;
     }
     if (s_save_err) {
@@ -1419,6 +1480,115 @@ static void draw_space(int t)
     gfx_set_opacity(t);
 }
 
+/* What the description line says for an item (a plugin: what the choice means, then the file). */
+static const char *item_desc(const Item *it, char *buf, int n)
+{
+    if (it->src == SRC_PLUG) {
+        int v = S.plug_v[it->key];
+        snprintf(buf, n, "%s %s", v >= 0 ? PRL_DESC[v] : "Custom runlevel.", S.plug[it->key].path);
+        return buf;
+    }
+    return it->desc;
+}
+
+/* The value at the right end of a row ending at rx: a switch (with what it's on for), or the
+ * value's text ("< value >" on the focused row when it can be changed). */
+static void draw_value(const Item *it, int i, int rx, int cy, int focused)
+{
+    int fs = gfx_line_h(FONT_SMALL);
+    char v[80]; /* an info row's text is up to 72 */
+    item_value(it, v, sizeof(v));
+    int sw = item_ready(it) ? switch_state(it) : -1;
+    if (sw >= 0) {
+        const char *note = NULL;
+        if (sw > 0 && !strncmp(v, "On (", 4)) { note = v + 4; v[strlen(v) - 1] = 0; }
+        draw_switch(rx, cy, focused && S.knob_id == S.cat * 256 + i ? S.knob.x : sw * 256, focused);
+        if (note)
+            gfx_text_right(FONT_SMALL, rx - SW_W - 6, cy - fs / 2 + 1, note, focused ? C_WHITE : C_MUTED);
+        return;
+    }
+    char shown[88];
+    int adjustable = it->src != SRC_INFO && it->src != SRC_ACTION && item_ready(it);
+    snprintf(shown, sizeof(shown), focused && adjustable ? "< %s >" : "%s", v);
+    gfx_text_right(FONT_SMALL, rx, cy - fs / 2 + 1, shown, focused ? C_WHITE : it->src == SRC_ACTION ? C_FOCUS : C_MUTED);
+}
+
+/* nuMB (N4): the cross bar with Settings focused, "Settings / Section" under it, and the
+ * section's settings as the column: one row each, the focused one grown to show its
+ * description. Same items, values and buttons as XLT's Settings screen. */
+static void numb_settings_draw(const SysStatus *st, int t)
+{
+    gfx_rect(0, 0, SCREEN_W, SCREEN_H, C_BG);
+    ui_numb_draw_bar();
+    char label[64];
+    snprintf(label, sizeof(label), "Settings / %s", s_cats[S.cat].name);
+    gfx_text_fit(FONT_BOLD, NUMB_COL_X, NUMB_LABEL_Y, NUMB_COL_W, label, C_TEXT);
+    ui_draw_status_bar(NULL, st);
+
+    Cat *c = &s_cats[S.cat];
+    int sel = S.sel[S.cat], top = S.top[S.cat], x = NUMB_COL_X;
+    if (sel >= top + NUMB_SET_ROWS) top = sel - NUMB_SET_ROWS + 1; /* (the top kept by XLT's longer list) */
+    if (sel < top) top = sel;
+    int fb = gfx_line_h(FONT_BODY), fbo = gfx_line_h(FONT_BOLD), fs = gfx_line_h(FONT_SMALL);
+    int y = NUMB_COL_Y;
+    for (int i = top; i < c->n && y < NUMB_COL_BOTTOM; i++) {
+        Item *it = &c->items[i];
+        int focused = S.col == 1 && i == sel;
+        int h = focused ? numb_card_h() : NUMB_ROW_H;
+        if (y + h > NUMB_COL_BOTTOM + 4)
+            break;
+        const char *name = it->src == SRC_PLUG ? it->text : it->label;
+        int rx = x + NUMB_COL_W - 10;
+        if (focused) {
+            gfx_rrect(x, y, NUMB_COL_W, h, 8, C_ACCENT);
+            int vw = NUMB_COL_W / 2;
+            gfx_text_fit(FONT_BOLD, x + 12, y + 6, NUMB_COL_W - 24 - vw, name, C_WHITE);
+            draw_value(it, i, rx, y + 6 + fbo / 2, 1);
+            char buf[PLUG_PATH + 96];
+            const char *d = item_desc(it, buf, sizeof(buf));
+            if (d)
+                draw_wrapped(x + 12, y + 6 + fbo + 2, NUMB_COL_W - 24, d, C_WHITE);
+        } else {
+            u32 col = it->src == SRC_INFO ? C_MUTED : it->src == SRC_PLUG && S.plug_v[it->key] == PRL_OFF ? C_MUTED : C_TEXT;
+            gfx_text_fit(FONT_BODY, x + 12, y + (NUMB_ROW_H - fb) / 2, NUMB_COL_W / 2, name, col);
+            draw_value(it, i, rx, y + NUMB_ROW_H / 2, 0);
+        }
+        y += h;
+    }
+    if (!c->n)
+        gfx_text(FONT_SMALL, x + 12, NUMB_COL_Y + 6, S.loaded ? "Nothing here" : "...", C_MUTED);
+    else if (S.col == 0) /* (only until the files are read) */
+        gfx_text(FONT_SMALL, x + 12, NUMB_COL_Y + 6, c->note ? c->note : "", C_MUTED);
+    (void)fs;
+
+    static const Hint item_hints[] = {
+        {-1, KEY_LR, 0, "Change"},
+        {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
+        {-1, "L/R", 0, "Section"},
+    };
+    static const Hint switch_hints[] = {
+        {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Switch"},
+        {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
+        {-1, "L/R", 0, "Section"},
+    };
+    static const Hint action_hints[] = {
+        {ICON_BTN_CROSS, NULL, C_BTN_CROSS, "Select"},
+        {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
+        {-1, "L/R", 0, "Section"},
+    };
+    const Hint *h = item_hints + 1;
+    int n = 2;
+    if (S.col == 1 && c->n) {
+        int src = c->items[sel].src;
+        if (src == SRC_ACTION) { h = action_hints; n = COUNT(action_hints); }
+        else if (switch_state(&c->items[sel]) >= 0) { h = switch_hints; n = COUNT(switch_hints); }
+        else if (src != SRC_INFO) { h = item_hints; n = COUNT(item_hints); }
+    }
+    ui_draw_footer_hints(h, n);
+    draw_space(t);
+    draw_update(t);
+}
+
 void settings_draw(const SysStatus *st)
 {
     int t = S.t.x;
@@ -1426,6 +1596,11 @@ void settings_draw(const SysStatus *st)
         return;
     if (t > 256) t = 256;
     gfx_set_opacity(t);
+    if (NUMB) {
+        numb_settings_draw(st, t);
+        gfx_set_opacity(256);
+        return;
+    }
     gfx_rect(0, 0, SCREEN_W, SCREEN_H, C_BG);
     ui_draw_status_bar("Settings", st);
     int fb = gfx_line_h(FONT_BODY), fs = gfx_line_h(FONT_SMALL);
@@ -1517,7 +1692,7 @@ void settings_draw(const SysStatus *st)
         {-1, "L/R", 0, "Section"},
     };
     static const Hint item_hints[] = {
-        {-1, "<-/->", 0, "Change"},
+        {-1, KEY_LR, 0, "Change"},
         {ICON_BTN_CIRCLE, NULL, C_BTN_CIRCLE, "Back"},
         {-1, "L/R", 0, "Section"},
     };

@@ -30,7 +30,8 @@
 #define XLTC_H 272
 #define XLTC_PIECE_ROWS 64     /* 272 = 4 x 64 + 16 */
 
-enum { XLTC_HELLO = 1, XLTC_START = 2, XLTC_STOP = 3, XLTC_STATS = 4, XLTC_FRAME = 0x10, XLTC_AUDIO = 0x11 };
+enum { XLTC_HELLO = 1, XLTC_START = 2, XLTC_STOP = 3, XLTC_STATS = 4, XLTC_FRAME = 0x10, XLTC_AUDIO = 0x11, XLTC_NOP = 0x12 };
+/* NOP (PSP -> PC, PS1 games): nothing; ends each message there, as POPS holds the last transfer back. */
 /* AUDIO (while started, between frames): a = sample rate (44100), b = the first sample's number on
  * the PSP's timeline; len bytes of 16-bit stereo follow in one transfer. */
 enum {

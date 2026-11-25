@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "net.h"
+#include "usbsync.h"
 
 #define MODULE_ALREADY_LOADED 0x80111102
 #define MODULE_ALREADY_LOADED2 0x80020139 /* as music.c accepts */
@@ -28,8 +29,12 @@ static volatile int s_state = NET_IDLE;
 static char s_err[96];
 static char s_name[64];
 static int s_preferred;
+static int s_held; /* XLT's USB sync held off for a connection over USBNet (usbsync_hold) */
+static SceUID s_lock = -1; /* net_shutdown runs from the web's network thread (unused) or the UI (closing) */
+
 
 int net_state(void) { return s_state; }
+int net_running(void) { return s_started; }
 const char *net_error(void) { return s_err; }
 const char *net_profile_name(void) { return s_name; }
 void net_set_preferred(int id) { s_preferred = id; }
@@ -72,6 +77,8 @@ int net_start(void)
 {
     if (s_started)
         return 0;
+    if (s_lock < 0)
+        s_lock = sceKernelCreateSema("xl_netlk", 0, 1, 1, NULL);
     s_state = NET_STARTING;
     int r;
     NLOG("wifi: starting, %d KB free", (int)(sceKernelTotalFreeMemSize() >> 10));
@@ -131,6 +138,29 @@ int net_is_up(void)
     return s_started && sceNetApctlGetState(&st) >= 0 && st == PSP_NET_APCTL_STATE_GOT_IP;
 }
 
+/* A connection over the cable (USBNet's network "Hi-Speed USB"), with USBNet running: XLT's USB
+ * sync gives it the cable first, or USBNet would find the bus in use and try to share it (it
+ * shares with PSPLink only). Sync comes back by itself once USBNet lets the cable go. */
+static void hold_sync_for(int id)
+{
+    netData d;
+    memset(&d, 0, sizeof(d));
+    if (!usbnet_loaded() || sceUtilityGetNetParam(id, PSP_NETPARAM_SSID, &d) != 0 || strcmp(d.asString, "Hi-Speed USB"))
+        return;
+    usbsync_hold(1);
+    s_held = 1;
+    for (int i = 0; i < 40 && usbsync_active(); i++) /* the main loop turns it off (usbsync_poll) */
+        sceKernelDelayThread(50000);
+    NLOG("wifi: over USBNet: USB sync %s", usbsync_active() ? "STILL ON" : "off meanwhile");
+}
+
+static void release_sync(void)
+{
+    if (s_held)
+        usbsync_hold(0);
+    s_held = 0;
+}
+
 int net_connect(int id, volatile int *cancel)
 {
     s_err[0] = 0;
@@ -161,10 +191,12 @@ int net_connect(int id, volatile int *cancel)
     snprintf(s_name, sizeof(s_name), "%s", names[k]);
 
     sceNetApctlDisconnect();
+    hold_sync_for(id);
     s_state = NET_JOINING;
     NLOG("wifi: joining connection %d (%s)", id, s_name);
     int r = sceNetApctlConnect(id);
     if (r < 0) {
+        release_sync();
         snprintf(s_err, sizeof(s_err), "Couldn't connect to %s (%08X)", s_name, (unsigned)r);
         s_state = NET_FAILED;
         return -1;
@@ -173,6 +205,7 @@ int net_connect(int id, volatile int *cancel)
     for (int t = 0; t < 30000 / 50; t++) {
         if (cancel && *cancel) {
             sceNetApctlDisconnect();
+            release_sync();
             s_state = NET_IDLE;
             snprintf(s_err, sizeof(s_err), "Stopped");
             return -1;
@@ -196,6 +229,7 @@ int net_connect(int id, volatile int *cancel)
         sceKernelDelayThread(50000);
     }
     sceNetApctlDisconnect();
+    release_sync();
     snprintf(s_err, sizeof(s_err), "Couldn't connect to %s", s_name);
     s_state = NET_FAILED;
     return -1;
@@ -205,6 +239,7 @@ void net_disconnect(void)
 {
     if (s_started)
         sceNetApctlDisconnect();
+    release_sync();
     s_state = NET_IDLE;
 }
 
@@ -212,7 +247,14 @@ void net_shutdown(void)
 {
     if (!s_started)
         return;
+    if (s_lock >= 0)
+        sceKernelWaitSema(s_lock, 1, NULL);
+    if (!s_started) { /* the other thread did it meanwhile */
+        sceKernelSignalSema(s_lock, 1);
+        return;
+    }
     sceNetApctlDisconnect();
+    release_sync();
     sceNetApctlTerm();
     sceNetResolverTerm();
     sceNetInetTerm();
@@ -222,4 +264,6 @@ void net_shutdown(void)
     s_modules = 0;
     s_started = 0;
     s_state = NET_IDLE;
+    if (s_lock >= 0)
+        sceKernelSignalSema(s_lock, 1);
 }

@@ -3,6 +3,7 @@
  * Four rows of ten characters and a row of actions (Shift, ABC/ΑΒΓ, #+=,
  * Space, Del, Done). ✕ presses the focused key, □ deletes, △ types a space,
  * L/R move the cursor, SELECT switches layout, START is Done, ○ cancels.
+ * Holding ✕ on a letter or Del, or holding □, repeats it.
  */
 #include <stdio.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include "osk.h"
 #include "ui_internal.h"
 #include "anim.h"
+#include "input.h"
 
 #define COLS 10
 #define ROWS 4
@@ -53,12 +55,15 @@ static struct {
     int open;
     Spring t;
     char title[64];
-    char text[OSK_MAX + 1];
+    char text[OSK_LINE_MAX + 1];
     int cursor; /* byte offset */
+    int max;    /* bytes the text may have */
     int mode, layout, last_letters;
     int row, col;
     OskFn fn;
     const char *err;
+    unsigned int rep; /* the held button that repeats (✕ or □), 0 if none */
+    int rep_frames;
 } K;
 
 static int utf8_len(unsigned char c) { return c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; }
@@ -85,7 +90,8 @@ void osk_open(const char *title, const char *initial, int mode, OskFn fn)
     if (!s_split)
         split_layouts();
     snprintf(K.title, sizeof(K.title), "%s", title);
-    snprintf(K.text, sizeof(K.text), "%s", initial ? initial : "");
+    K.max = mode == OSK_LINE ? OSK_LINE_MAX : OSK_MAX;
+    snprintf(K.text, K.max + 1, "%s", initial ? initial : "");
     K.cursor = (int)strlen(K.text);
     K.mode = mode;
     K.fn = fn;
@@ -120,35 +126,39 @@ static int allowed(const char *ch)
     return 1;
 }
 
-static void insert(const char *ch)
+/* 0 if the character was refused. */
+static int insert(const char *ch)
 {
     K.err = NULL;
     if (!allowed(ch)) {
         sfx_play(SFX_ERROR); /* a character names can't have */
-        return;
+        return 0;
     }
     int n = (int)strlen(ch), len = (int)strlen(K.text);
-    if (len + n > OSK_MAX || (K.mode == OSK_NUMBER && len >= 6)) {
+    if (len + n > K.max || (K.mode == OSK_NUMBER && len >= 6)) {
         sfx_play(SFX_ERROR);
-        return;
+        return 0;
     }
     sfx_play(SFX_KEY); /* a soft click per letter, not the ✕ chime */
     memmove(K.text + K.cursor + n, K.text + K.cursor, len - K.cursor + 1);
     memcpy(K.text + K.cursor, ch, n);
     K.cursor += n;
+    return 1;
 }
 
-static void backspace(void)
+/* 0 if there was nothing to delete. */
+static int backspace(void)
 {
     K.err = NULL;
     if (K.cursor == 0)
-        return;
+        return 0;
     sfx_play(SFX_DEL);
     int p = K.cursor - 1;
     while (p > 0 && ((unsigned char)K.text[p] & 0xC0) == 0x80)
         p--;
     memmove(K.text + p, K.text + K.cursor, strlen(K.text) - K.cursor + 1);
     K.cursor = p;
+    return 1;
 }
 
 static void move_cursor(int dir)
@@ -166,11 +176,18 @@ static void move_cursor(int dir)
 
 static void done(void)
 {
+    if (K.mode == OSK_LINE) { /* as typed: indentation, trailing spaces, nothing at all */
+        static char line[OSK_LINE_MAX + 1];
+        memcpy(line, K.text, sizeof(line));
+        sfx_play(SFX_SELECT);
+        close_with(line);
+        return;
+    }
     char out[OSK_MAX + 1];
     const char *s = K.text;
     while (*s == ' ')
         s++;
-    snprintf(out, sizeof(out), "%s", s);
+    snprintf(out, sizeof(out), "%.*s", OSK_MAX, s);
     int n = (int)strlen(out);
     while (n > 0 && (out[n - 1] == ' ' || (K.mode == OSK_FILENAME && out[n - 1] == '.')))
         out[--n] = 0;
@@ -222,9 +239,11 @@ int osk_input(unsigned int p)
 {
     if (!K.open)
         return 0;
+    K.rep = 0; /* any new press ends a repeat */
+    K.rep_frames = 0;
     if (p & PSP_CTRL_CIRCLE) { close_with(NULL); return 1; }
     if (p & PSP_CTRL_START) { done(); return 1; }
-    if (p & PSP_CTRL_SQUARE) { backspace(); return 1; }
+    if (p & PSP_CTRL_SQUARE) { backspace(); K.rep = PSP_CTRL_SQUARE; return 1; }
     if (p & PSP_CTRL_TRIANGLE) { insert(" "); return 1; }
     if (p & PSP_CTRL_LTRIGGER) { move_cursor(-1); return 1; }
     if (p & PSP_CTRL_RTRIGGER) { move_cursor(1); return 1; }
@@ -248,9 +267,33 @@ int osk_input(unsigned int p)
     } else if (p & PSP_CTRL_CROSS) {
         if (K.row == ROWS) action(K.col);
         else insert(KEYS[K.layout][K.row][K.col]);
+        if (K.open && (K.row < ROWS || K.col == ACT_DEL))
+            K.rep = PSP_CTRL_CROSS; /* letters and Del repeat while held */
     }
     if (K.row < ROWS && K.col >= COLS) K.col = COLS - 1;
     if (K.row == ROWS && K.col >= ACT_COUNT) K.col = ACT_COUNT - 1;
+    return 1;
+}
+
+int osk_hold(unsigned int held)
+{
+    if (!K.rep)
+        return 0;
+    if (!K.open || !(held & K.rep)) {
+        K.rep = 0;
+        return 0;
+    }
+    if (!input_repeats(++K.rep_frames))
+        return 0;
+    int ok;
+    if (K.rep == PSP_CTRL_SQUARE || (K.row == ROWS && K.col == ACT_DEL))
+        ok = backspace();
+    else if (K.row < ROWS)
+        ok = insert(KEYS[K.layout][K.row][K.col]);
+    else
+        ok = 0;
+    if (!ok)
+        K.rep = 0; /* full, refused or empty: one error sound, not a stream */
     return 1;
 }
 
@@ -277,16 +320,17 @@ void osk_draw(void)
     /* field: scrolled so the cursor stays visible */
     int fx = PANEL_X + 12, fw = PANEL_W - 24, fy = FIELD_Y + dy;
     gfx_rrect(fx, fy, fw, FIELD_H, 5, C_BG);
-    const char *start = K.text;
-    while (*start) {
-        char tmp[OSK_MAX + 1];
-        int n = (int)(K.text + K.cursor - start);
-        if (n < 0) n = 0;
-        memcpy(tmp, start, n);
-        tmp[n] = 0;
-        if (gfx_text_width(FONT_BODY, tmp) <= fw - 16)
+    /* from the cursor back, as many characters as fit: the start of what is shown */
+    const char *start = K.text + K.cursor;
+    for (int w = 0; start > K.text;) {
+        const char *p = start - 1;
+        while (p > K.text && ((unsigned char)*p & 0xC0) == 0x80)
+            p--;
+        const char *q = p;
+        w += gfx_glyph_adv(FONT_BODY, &q);
+        if (w > fw - 16)
             break;
-        start += utf8_len((unsigned char)*start);
+        start = p;
     }
     int ty = fy + (FIELD_H - gfx_line_h(FONT_BODY)) / 2;
     int cx = gfx_text_n(FONT_BODY, fx + 6, ty, start, (int)(K.text + K.cursor - start), C_TEXT);

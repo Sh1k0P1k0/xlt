@@ -9,6 +9,7 @@
 #include <string.h>
 #include <strings.h>
 #include "arklauncher.h"
+#include "side.h"
 #include "ark.h"
 #include "arkcfg.h"
 #include "bg.h"
@@ -35,6 +36,7 @@ static void ark_file(char *out, int n, const char *name) { snprintf(out, n, "%s%
 
 void launcher_early(const char *self, char *dir, int cap)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: ARK's launcher is the real XLT's (side.h) */
     snprintf(s_dir, sizeof(s_dir), "%s", dir);
     if (!ark_version() || !ark_dir()[0] || !self)
         return;
@@ -182,6 +184,7 @@ static int set_launcher(int on)
 
 void launcher_sync_now(void)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: ARK's launcher is the real XLT's (side.h) */
     if (!ark_version() || !ark_dir()[0])
         return;
     char note[320], paused[300];
@@ -250,6 +253,7 @@ static void job_sync(void *arg) { (void)arg; launcher_sync_now(); }
 
 void launcher_sync(const char *dir)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: ARK's launcher is the real XLT's (side.h) */
     if (!s_is_launcher)
         snprintf(s_dir, sizeof(s_dir), "%s", dir);
     bg_post(job_sync, NULL, 0);
@@ -268,6 +272,7 @@ static int xlt_is_ark_launcher(void)
 
 void launcher_before_exit(void)
 {
+    if (XLT_SIDE_BUILD) return; /* nuMB: ARK's launcher is the real XLT's (side.h) */
     /* Also when this XLT was started from the XMB (PSP/GAME/XLT): with the launcher
      * setting on, ARK would start its copy of XLT instead of going to the XMB. */
     if (!ark_version() || (!s_is_launcher && !xlt_is_ark_launcher()))

@@ -20,5 +20,7 @@ const char *settings_section_name(int s);
 const char *settings_section_sub(int s);   /* a few words on what is in it */
 int settings_section_icon(int s);
 void settings_open_section(int s);         /* opens Settings in that section */
+void settings_offer_update(void);          /* About with the update dialog: XLT Tool sent one */
+int settings_section(void);                /* the section shown now (nuMB's column follows it) */
 
 #endif
